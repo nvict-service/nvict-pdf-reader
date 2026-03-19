@@ -46,3 +46,5 @@ ftp_config.ini
 Create_Version_JSON.ps1
 clean_registry.py
 *.backup
+Upload_FTP.ps1
+*.spec
