@@ -4,7 +4,12 @@ NVict Reader is een snelle en gebruiksvriendelijke PDF-lezer met ondersteuning v
 
 ---
 
-## 🚀 Nieuw in Versie 1.9
+## 🛡️ Veiligheid & Vertrouwen
+**NVict Reader is digitaal ondertekend.** Dit betekent dat de software is geverifieerd en de integriteit van het bestand is gewaarborgd. Een digitale handtekening garandeert dat de code niet is aangepast door derden en voorkomt onnodige waarschuwingen van Windows SmartScreen bij het opstarten.
+
+---
+
+## 🚀 Nieuw in Versie 2.0
 
 * **Thumbnail-paneel**: Een scrollbaar paneel links van het document toont miniaturen van alle pagina's voor snelle navigatie.
 * **Tekst markeren**: Activeer de markeermodus via de knop "Markeer" of `Ctrl+H` om gele highlights toe te voegen.
@@ -16,12 +21,12 @@ NVict Reader is een snelle en gebruiksvriendelijke PDF-lezer met ondersteuning v
 ## 🛠 Functionaliteiten
 
 ### Gebruikersinterface
-* **Volledig scherm**: Bekijk documenten zonder menu of werkbalk (`F11`).
+* **Volledig scherm**: Bekijk documenten zonder menu of werkbalk via `F11`.
 * **Licht / Donker thema**: Schakel eenvoudig tussen thema's; het programma detecteert automatisch je Windows-instellingen.
 * **Tooltips**: Alle knoppen tonen een duidelijke uitleg en de bijbehorende sneltoets.
 
 ### Prestaties & Verbeteringen
-* **Snelle opstart**: Geoptimaliseerd voor een korte laadtijd vanaf versie 1.7.3.
+* **Snelle opstart**: Geoptimaliseerd voor een korte laadtijd.
 * **Printen**: Volledige ondersteuning voor printen naar elke beschikbare printer.
 * **Slimmer werken**: Voorkomt dat bestanden dubbel worden geopend en brengt het programma automatisch naar de voorgrond.
 
@@ -35,14 +40,13 @@ NVict Reader is een snelle en gebruiksvriendelijke PDF-lezer met ondersteuning v
 | **Markeermodus aan/uit** | `Ctrl + H` |
 | **Boek-modus aan/uit** | `Ctrl + B` |
 | **Volledig scherm** | `F11` |
-| **Opslaan** | `Ctrl + S` |
+| **Bestand opslaan** | `Ctrl + S` |
 
 ---
 
-## 🔧 Bugfixes
-* Problemen met de `get_fitz()` aanroep zijn verholpen.
+## 🔧 Opgeloste problemen (Bugfixes)
+* Problemen met de `get_fitz()` aanroep zijn volledig verholpen.
 * Fouten bij het selecteren van tekst zijn opgelost.
-* Geen onnodige meldingen meer over de standaard PDF-handler.
+* Geen onnodige meldingen meer over de standaard PDF-handler bij het eerste gebruik.
 
 Veel werkplezier met NVict Reader!
->>>>>>> 799a274124067907331159de0804c36bdc94b0b6
