@@ -1,22 +1,48 @@
-### AL ###
-#Template for AL projects for Dynamics 365 Business Central
-#launch.json folder
+# ============================================================
+# NVict Reader - .gitignore
+# ============================================================
+
+# PyInstaller build output (gegenereerd bij elke build)
+build/
+dist/
+
+# Inno Setup installer output
+Output/
+
+
+# Python cache
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.spec.bak
+
+# Virtuele omgevingen
+.venv/
+venv/
+env/
+
+# IDE-bestanden
 .vscode/
-#Cache folder
-.alcache/
-#Symbols folder
-.alpackages/
-#Snapshots folder
-.snapshots/
-#Testing Output folder
-.output/
-#Extension App-file
-*.app
-#Rapid Application Development File
-rad.json
-#Translation Base-file
-*.g.xlf
-#License-file
-*.flf
-#Test results file
-TestResults.xml
+.idea/
+*.suo
+*.user
+
+# Windows
+Thumbs.db
+Desktop.ini
+ehthumbs.db
+
+# Tijdelijke bestanden
+*.tmp
+*.log
+*.bak
+ftp_config.ini
+*.iss
+*.bat
+/Signing
+/.claude
+/logs
+Create_Version_JSON.ps1
+clean_registry.py
+*.backup
