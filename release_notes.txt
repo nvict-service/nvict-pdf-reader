@@ -1,18 +1,26 @@
+Versie 2.0 - Wat is er nieuw?
+
+**NVict Reader is digitaal ondertekend.** 
+Dit betekent dat de software is geverifieerd en de integriteit van het bestand is gewaarborgd. 
+Een digitale handtekening garandeert dat de code niet is aangepast door derden en voorkomt 
+onnodige waarschuwingen van Windows SmartScreen bij het opstarten. 
+
+
 Versie 1.9 - Wat is er nieuw?
 
-• Thumbnail-paneel
+Thumbnail-paneel
   Een scrollbaar paneel links van het document toont miniaturen van alle pagina's.
   Klik op een miniatuur om direct naar die pagina te navigeren.
   Tonen/verbergen via de knop "Pagina's" in de werkbalk of Ctrl+T.
   Het paneel markeert de huidige pagina met een gekleurde rand.
 
-• Tekst markeren (annotaties)
+Tekst markeren (annotaties)
   Activeer de markeermodus via de knop "Markeer" in de werkbalk of Ctrl+H.
   Sleep over tekst om gele highlight-annotaties toe te voegen aan het PDF.
   Annotaties worden opgeslagen wanneer u het bestand opslaat (Ctrl+S).
   De knop licht op wanneer de markeermodus actief is.
 
-• Boek-modus
+Boek-modus
   Toon twee pagina's naast elkaar, zoals een open boek.
   Activeer via de knop "Boek" in de werkbalk of Ctrl+B.
   De zoom past zich automatisch aan zodat beide pagina's zichtbaar zijn.
@@ -20,18 +28,18 @@ Versie 1.9 - Wat is er nieuw?
 
 Versie 1.8 - Wat is er nieuw?
 
-• Volledig scherm modus
+Volledig scherm modus
   PDF documenten kunnen nu in volledig scherm worden bekeken (F11 of knop in werkbalk).
   Alleen de PDF is zichtbaar, zonder menu of werkbalk.
   Navigeer met pijltoetsen, verlaat met Escape of F11.
   Beweging naar bovenkant toont een hint-balk opnieuw.
 
-• Licht / Donker thema
+Licht / Donker thema
   Schakel eenvoudig tussen licht en donker thema via de knop in de werkbalk.
   Het programma detecteert automatisch het Windows thema bij de eerste start.
   De keuze wordt onthouden voor de volgende keer.
 
-• Tooltips op knoppen
+Tooltips op knoppen
   Alle knoppen in de werkbalk tonen nu een tooltip met uitleg en sneltoets.
 
 Versie 1.7.5 - BugFix (selecteren ging niet altijd juist)
@@ -44,18 +52,18 @@ Versie 1.7.2 - Geen melding meer (bij 1e keer starten) over standaard PDF handle
 
 Versie 1.7.1 - Update dialoog verbetering
 
-• Scrollbar toegevoegd
+Scrollbar toegevoegd
   In het update dialoog is nu een scrollbar zichtbaar bij lange release notes.
 
 Versie 1.7 - Wat is er nieuw?
 
-• Printen werkt nu goed
+Printen werkt nu goed
   U kunt nu printen naar elke printer.
 
-• Duidelijkere knoppen
+Duidelijkere knoppen
   Alle knoppen tonen wat ze doen.
 
-• Slimmer werken
+Slimmer werken
   - Bestanden niet meer dubbel geopend
   - Programma komt automatisch naar voren
 

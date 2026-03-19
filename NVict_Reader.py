@@ -5,7 +5,7 @@ Gebaseerd op de UI-stijl van NV Sync
 Ontwikkeld door NVict Service
 
 Website: www.nvict.nl
-Versie: 1.9
+Versie: 2.0
 """
 
 import sys
@@ -29,7 +29,7 @@ import socket
 import time
 
 # Applicatie versie
-APP_VERSION = "1.9"
+APP_VERSION = "2.0"
 UPDATE_CHECK_URL = "https://www.nvict.nl/software/updates/nvict_reader_version.json"
 
 # ====================================================================
@@ -68,7 +68,7 @@ class DefaultPDFHandler:
     """Handles setting NVict Reader as default PDF viewer"""
     
     @staticmethod
-    def is_default_pdf_handler():  # ← LET OP: 4 spaties voor 'def'
+    def is_default_pdf_handler(): 
         """Check if NVict Reader is currently the default PDF handler"""
         try:
             # Haal de huidige executable path op
