@@ -48,3 +48,4 @@ clean_registry.py
 *.backup
 Upload_FTP.ps1
 *.spec
+upload_15139.txt
