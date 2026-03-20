@@ -562,11 +562,7 @@ class PDFTab(tk.Frame):
         self.page_pil_images = {}  # PIL images voor elke pagina (voor highlighting)
         self.page_positions = []  # Y-positie van elke pagina
         self.scroll_to_page = None  # Flag voor initiële scroll
-        
-        # Form fields
-        self.form_widgets = []
-        self.form_data = {}  # Store form field values
-        
+
         # Links (nieuw voor hyperlinks)
         self.links = []  # Lijst van (page_num, rect, uri/dest) tuples
         self.current_cursor = "arrow"  # Track cursor state
@@ -865,7 +861,6 @@ class NVictReader:
         self.recent_menu = tk.Menu(file_menu, tearoff=0)
         file_menu.add_cascade(label="Recente bestanden", menu=self.recent_menu)
         self.update_recent_files_menu()
-        file_menu.add_command(label="Opslaan...", command=self.save_form_data, accelerator="Ctrl+S")
         file_menu.add_separator()
         file_menu.add_command(label="Afdrukken...", command=self.print_pdf, accelerator="Ctrl+P")
         file_menu.add_separator()
@@ -936,8 +931,6 @@ class NVictReader:
                                                    self.open_pdf, self.theme["ACCENT_COLOR"])
         self.close_btn = self.create_toolbar_button(f, " Sluiten", "close",
                                                     self.close_active_tab, self.theme["BG_SECONDARY"])
-        self.save_btn = self.create_toolbar_button(f, " Opslaan", "save",
-                                                   self.save_form_data, self.theme["BG_SECONDARY"])
         self.print_btn = self.create_toolbar_button(f, " Printen", "print",
                                                     self.print_pdf, self.theme["BG_SECONDARY"])
         self.add_toolbar_separator(f)
@@ -1129,7 +1122,6 @@ class NVictReader:
 
     def setup_shortcuts(self):
         self.root.bind("<Control-o>", lambda e: self.open_pdf())
-        self.root.bind("<Control-s>", lambda e: self.save_form_data())
         self.root.bind("<Control-p>", lambda e: self.print_pdf())
         self.root.bind("<Control-w>", lambda e: self.close_active_tab())
         self.root.bind("<Control-q>", lambda e: self.exit_application())
@@ -1760,10 +1752,6 @@ class NVictReader:
         tab.selected_text = ""
         tab.links = []
         tab.page_regions = {}
-        for widget in tab.form_widgets:
-            widget.destroy()
-        tab.form_widgets = []
-
         book_mode   = getattr(tab, 'book_mode', False)
         page_gap    = 12   # horizontale ruimte tussen pagina's in boek-modus
         x_margin    = 20
@@ -1891,9 +1879,6 @@ class NVictReader:
                         'kind': link.get('kind', 0),
                     })
 
-            # Formuliervelden (uitgeschakeld maar structuur bewaard)
-            self.display_form_fields_for_page(tab, page, page_num, x_offset, y_offset)
-
             # Scheidingslijn onder pagina
             sep_y = y_offset + img_height + page_spacing // 2
             tab.canvas.create_line(
@@ -1932,11 +1917,6 @@ class NVictReader:
             # Bereken fractie voor scrollpositie (0.0 - 1.0)
             fraction = y_pos / total_height
             tab.canvas.yview_moveto(fraction)
-
-    def display_form_fields_for_page(self, tab, page, page_num, x_offset, y_offset):
-        """Toon formuliervelden voor een specifieke pagina - UITGESCHAKELD om errors te voorkomen"""
-        # Deze functie veroorzaakt PyMuPDF widget errors - uitgeschakeld
-        return
 
     def on_click(self, event, tab):
         x = tab.canvas.canvasx(event.x)
@@ -3137,28 +3117,6 @@ class NVictReader:
         except:
             pass
 
-    def save_form_data(self):
-        tab = self.get_active_tab()
-        if isinstance(tab, PDFTab):
-            save_path = filedialog.asksaveasfilename(
-                defaultextension=".pdf",
-                filetypes=[("PDF Bestanden", "*.pdf"), ("Alle Bestanden", "*.*")]
-            )
-            if save_path:
-                try:
-                    # Sla alle form data op in het PDF document
-                    for page_num in range(len(tab.pdf_document)):
-                        page = tab.pdf_document[page_num]
-                        for widget in page.widgets():
-                            if widget.field_name in tab.form_data:
-                                widget.field_value = tab.form_data[widget.field_name]
-                                widget.update()
-                    
-                    tab.pdf_document.save(save_path)
-                    messagebox.showinfo("Succes", "PDF met ingevulde formuliervelden opgeslagen")
-                except Exception as e:
-                    messagebox.showerror("Fout", f"Kan PDF niet opslaan:\n{str(e)}")
-    
     def split_pdf(self):
         """Splits PDF in losse pagina's"""
         fitz = get_fitz()  # Lazy load

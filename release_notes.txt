@@ -17,7 +17,6 @@ Thumbnail-paneel
 Tekst markeren (annotaties)
   Activeer de markeermodus via de knop "Markeer" in de werkbalk of Ctrl+H.
   Sleep over tekst om gele highlight-annotaties toe te voegen aan het PDF.
-  Annotaties worden opgeslagen wanneer u het bestand opslaat (Ctrl+S).
   De knop licht op wanneer de markeermodus actief is.
 
 Boek-modus

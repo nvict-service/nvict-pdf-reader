@@ -14,7 +14,6 @@ NVict Reader is een snelle en gebruiksvriendelijke PDF-lezer met ondersteuning v
 * **Thumbnail-paneel**: Een scrollbaar paneel links van het document toont miniaturen van alle pagina's voor snelle navigatie.
 * **Tekst markeren**: Activeer de markeermodus via de knop "Markeer" of `Ctrl+H` om gele highlights toe te voegen.
 * **Boek-modus**: Toon twee pagina's naast elkaar, waarbij de zoom zich automatisch aanpast aan je scherm.
-* **Opslaan**: Annotaties worden direct in het PDF-bestand opgeslagen met `Ctrl+S`.
 
 ---
 
@@ -40,7 +39,6 @@ NVict Reader is een snelle en gebruiksvriendelijke PDF-lezer met ondersteuning v
 | **Markeermodus aan/uit** | `Ctrl + H` |
 | **Boek-modus aan/uit** | `Ctrl + B` |
 | **Volledig scherm** | `F11` |
-| **Bestand opslaan** | `Ctrl + S` |
 
 ---
 

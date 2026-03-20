@@ -1,0 +1,13 @@
+option batch abort
+option confirm off
+open ftp://softwareupload%40nvict.nl:W96JbyjRwK3u0VOB@ftp.nvict.nl
+option batch continue
+mkdir /software/NVict_Reader
+mkdir /software/NVict_Reader/updates
+option batch abort
+cd /software/NVict_Reader
+put "Output\NVict_Reader_Setup.exe" "NVict_Reader_Setup.exe"
+cd /software/NVict_Reader/updates
+put "Output\nvict_reader_version.json"
+close
+exit
