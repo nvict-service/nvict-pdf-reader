@@ -275,29 +275,66 @@ class DefaultPDFHandler:
 
     @staticmethod
     def show_first_run_dialog(parent):
-        """Toon dialoog bij eerste keer opstarten"""
+        """Toon dialoog bij eerste keer opstarten met 'Nooit meer vragen' optie"""
         # Check of we al standaard zijn
         if DefaultPDFHandler.is_default_pdf_handler():
             return "already_default"
 
+        # Maak custom dialoog window
+        dialog = tk.Toplevel(parent)
+        dialog.title("Welkom bij NVict Reader")
+        dialog.geometry("450x220")
+        dialog.resizable(False, False)
+        dialog.transient(parent)
+        dialog.grab_set()
+
+        # Center dialoog op parent window
+        dialog.update_idletasks()
+        x = parent.winfo_x() + (parent.winfo_width() - dialog.winfo_width()) // 2
+        y = parent.winfo_y() + (parent.winfo_height() - dialog.winfo_height()) // 2
+        dialog.geometry(f"+{x}+{y}")
+
+        # Bericht
         msg = (
             "Welkom bij NVict Reader!\n\n"
             "Wilt u NVict Reader instellen als uw standaard PDF programma?\n"
             "Dit kunt u later altijd nog wijzigen via Instellingen."
         )
-        
-        # Maak een custom dialoog of gebruik standaard messagebox
-        # We gebruiken hier askyesnocancel voor Ja / Nee / Nooit meer vragen
-        # Maar tkinter heeft geen 'Nooit', dus we gebruiken simpel Ja/Nee
-        
-        # Omdat de return value in jouw code "never" verwacht, simuleren we dat:
-        # Je kunt hier een custom dialoog bouwen, maar voor nu volstaat askyesno.
-        
-        if messagebox.askyesno("Welkom", msg, parent=parent):
+
+        label = tk.Label(dialog, text=msg, font=("Arial", 10),
+                        justify=tk.LEFT, padx=20, pady=20)
+        label.pack(fill=tk.BOTH, expand=True)
+
+        # Checkbox voor "Nooit meer vragen"
+        never_ask_var = tk.BooleanVar(value=False)
+        checkbox = tk.Checkbutton(dialog, text="Niet meer vragen",
+                                 variable=never_ask_var, font=("Arial", 9),
+                                 padx=20, pady=5)
+        checkbox.pack(fill=tk.X)
+
+        result = [None]
+
+        def on_yes():
+            result[0] = "never" if never_ask_var.get() else "yes"
             DefaultPDFHandler.prompt_set_as_default(parent)
-            return "yes"
-        else:
-            return "no"
+            dialog.destroy()
+
+        def on_no():
+            result[0] = "never" if never_ask_var.get() else "no"
+            dialog.destroy()
+
+        # Knoppen
+        btn_frame = tk.Frame(dialog)
+        btn_frame.pack(fill=tk.X, padx=20, pady=15)
+
+        btn_yes = tk.Button(btn_frame, text="Ja", width=10, command=on_yes)
+        btn_yes.pack(side=tk.LEFT, padx=5)
+
+        btn_no = tk.Button(btn_frame, text="Nee", width=10, command=on_no)
+        btn_no.pack(side=tk.LEFT, padx=5)
+
+        parent.wait_window(dialog)
+        return result[0] if result[0] else "no"
 
 # ====================================================================
 
@@ -805,7 +842,9 @@ class NVictReader:
         self.welcome_label = tk.Label(self.welcome_frame, text=welcome_text,
                                       font=Theme.FONT_HEADING, fg=self.theme["TEXT_SECONDARY"],
                                       bg=self.theme["BG_PRIMARY"], justify=tk.CENTER)
-        self.welcome_label.place(relx=0.5, rely=0.50, anchor="center")
+        # Positioneer tekst lager op kleine schermen om overlap met logo te vermijden
+        text_y = 0.55 if self.root.winfo_height() > 600 else 0.65
+        self.welcome_label.place(relx=0.5, rely=text_y, anchor="center")
 
         # Initialiseer de recente bestanden sectie (wordt ingevuld na laden instellingen)
         self.welcome_recent_frame = tk.Frame(self.welcome_frame, bg=self.theme["BG_PRIMARY"])
