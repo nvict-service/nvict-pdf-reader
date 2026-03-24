@@ -29,7 +29,7 @@ import socket
 import time
 
 # Applicatie versie
-APP_VERSION = "2.0"
+APP_VERSION = "2.1"
 UPDATE_CHECK_URL = "https://www.nvict.nl/software/updates/nvict_reader_version.json"
 
 # ====================================================================
@@ -2665,7 +2665,7 @@ class NVictReader:
             fit_frame.pack(fill=tk.X, pady=(0, 10))
             
             fit_to_page_var = tk.BooleanVar(value=True)
-            tk.Checkbutton(fit_frame, text="Passend maken op pagina", 
+            tk.Checkbutton(fit_frame, text="Passend maken op pagina",
                           variable=fit_to_page_var,
                           bg=self.theme["BG_PRIMARY"], fg=self.theme["TEXT_PRIMARY"],
                           selectcolor=self.theme["BG_SECONDARY"],
@@ -2673,6 +2673,22 @@ class NVictReader:
                           activeforeground=self.theme["TEXT_PRIMARY"],
                           font=("Segoe UI", 9)).pack(anchor="w")
             tk.Label(fit_frame, text="(schaalt document om op papier te passen)",
+                    bg=self.theme["BG_PRIMARY"], fg=self.theme["TEXT_SECONDARY"],
+                    font=("Segoe UI", 8)).pack(anchor="w", padx=20)
+
+            # Dubbelzijdig printen
+            duplex_frame = tk.Frame(content_frame, bg=self.theme["BG_PRIMARY"])
+            duplex_frame.pack(fill=tk.X, pady=(0, 10))
+
+            duplex_var = tk.BooleanVar(value=False)
+            tk.Checkbutton(duplex_frame, text="Dubbelzijdig printen (beide zijden)",
+                          variable=duplex_var,
+                          bg=self.theme["BG_PRIMARY"], fg=self.theme["TEXT_PRIMARY"],
+                          selectcolor=self.theme["BG_SECONDARY"],
+                          activebackground=self.theme["BG_PRIMARY"],
+                          activeforeground=self.theme["TEXT_PRIMARY"],
+                          font=("Segoe UI", 9)).pack(anchor="w")
+            tk.Label(duplex_frame, text="(drukt op beide zijden van het papier - papier besparing)",
                     bg=self.theme["BG_PRIMARY"], fg=self.theme["TEXT_SECONDARY"],
                     font=("Segoe UI", 8)).pack(anchor="w", padx=20)
 
@@ -2713,6 +2729,54 @@ class NVictReader:
                               activeforeground=self.theme["TEXT_PRIMARY"],
                               font=("Segoe UI", 9)).pack(side=tk.LEFT, padx=(0, 12))
 
+            # Pagina oriëntatie
+            tk.Label(content_frame, text="Oriëntatie:", font=("Segoe UI", 9, "bold"),
+                    bg=self.theme["BG_PRIMARY"], fg=self.theme["TEXT_PRIMARY"], anchor="w").pack(fill=tk.X, pady=(0, 5))
+
+            orient_frame = tk.Frame(content_frame, bg=self.theme["BG_PRIMARY"])
+            orient_frame.pack(fill=tk.X, pady=(0, 10))
+
+            orientation_var = tk.StringVar(value="portret")
+            tk.Radiobutton(orient_frame, text="Portret", variable=orientation_var, value="portret",
+                          bg=self.theme["BG_PRIMARY"], fg=self.theme["TEXT_PRIMARY"],
+                          selectcolor=self.theme["BG_SECONDARY"],
+                          activebackground=self.theme["BG_PRIMARY"],
+                          activeforeground=self.theme["TEXT_PRIMARY"],
+                          font=("Segoe UI", 9)).pack(side=tk.LEFT, padx=(0, 20))
+            tk.Radiobutton(orient_frame, text="Landschap", variable=orientation_var, value="landschap",
+                          bg=self.theme["BG_PRIMARY"], fg=self.theme["TEXT_PRIMARY"],
+                          selectcolor=self.theme["BG_SECONDARY"],
+                          activebackground=self.theme["BG_PRIMARY"],
+                          activeforeground=self.theme["TEXT_PRIMARY"],
+                          font=("Segoe UI", 9)).pack(side=tk.LEFT)
+
+            # Snelheid / Kwaliteit
+            tk.Label(content_frame, text="Kwaliteit:", font=("Segoe UI", 9, "bold"),
+                    bg=self.theme["BG_PRIMARY"], fg=self.theme["TEXT_PRIMARY"], anchor="w").pack(fill=tk.X, pady=(0, 5))
+
+            quality_frame = tk.Frame(content_frame, bg=self.theme["BG_PRIMARY"])
+            quality_frame.pack(fill=tk.X, pady=(0, 10))
+
+            quality_var = tk.StringVar(value="normaal")
+            tk.Radiobutton(quality_frame, text="Snel (besparing)", variable=quality_var, value="snel",
+                          bg=self.theme["BG_PRIMARY"], fg=self.theme["TEXT_PRIMARY"],
+                          selectcolor=self.theme["BG_SECONDARY"],
+                          activebackground=self.theme["BG_PRIMARY"],
+                          activeforeground=self.theme["TEXT_PRIMARY"],
+                          font=("Segoe UI", 9)).pack(side=tk.LEFT, padx=(0, 15))
+            tk.Radiobutton(quality_frame, text="Normaal", variable=quality_var, value="normaal",
+                          bg=self.theme["BG_PRIMARY"], fg=self.theme["TEXT_PRIMARY"],
+                          selectcolor=self.theme["BG_SECONDARY"],
+                          activebackground=self.theme["BG_PRIMARY"],
+                          activeforeground=self.theme["TEXT_PRIMARY"],
+                          font=("Segoe UI", 9)).pack(side=tk.LEFT, padx=(0, 15))
+            tk.Radiobutton(quality_frame, text="Hoog (beste kwaliteit)", variable=quality_var, value="hoog",
+                          bg=self.theme["BG_PRIMARY"], fg=self.theme["TEXT_PRIMARY"],
+                          selectcolor=self.theme["BG_SECONDARY"],
+                          activebackground=self.theme["BG_PRIMARY"],
+                          activeforeground=self.theme["TEXT_PRIMARY"],
+                          font=("Segoe UI", 9)).pack(side=tk.LEFT)
+
             # Knoppen
             btn_frame = tk.Frame(print_dialog, bg=self.theme["BG_SECONDARY"], height=70)
             btn_frame.pack(fill=tk.X, side=tk.BOTTOM)
@@ -2750,6 +2814,9 @@ class NVictReader:
                     fit_to_page = fit_to_page_var.get()
                     color_mode = color_mode_var.get()
                     rotation = int(rotation_var.get())
+                    duplex = duplex_var.get()
+                    orientation = orientation_var.get()
+                    quality = quality_var.get()
 
                     # Bepaal welke pagina's te printen
                     if page_opt == "current":
@@ -2771,7 +2838,7 @@ class NVictReader:
                         pages_to_print = list(range(len(tab.pdf_document)))
 
                     print_dialog.destroy()
-                    self.execute_print(tab, printer, pages_to_print, copies, fit_to_page, color_mode, rotation)
+                    self.execute_print(tab, printer, pages_to_print, copies, fit_to_page, color_mode, rotation, duplex, orientation, quality)
 
                 except ValueError as e:
                     messagebox.showerror("Invoer Fout", f"Ongeldig aantal kopieën: {str(e)}")
@@ -2888,7 +2955,7 @@ class NVictReader:
         except (ValueError, AttributeError):
             return None
 
-    def execute_print(self, tab, printer, pages, copies, fit_to_page=True, color_mode="kleur", rotation=0):
+    def execute_print(self, tab, printer, pages, copies, fit_to_page=True, color_mode="kleur", rotation=0, duplex=False, orientation="portret", quality="normaal"):
         """Print DIRECT naar printer via Windows GDI met goede error handling"""
         try:
             fitz = get_fitz()  # Lazy load voor fitz.Matrix

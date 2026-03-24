@@ -1,8 +1,15 @@
+Versie 2.1 - Wat is er nieuw?
+
+Geavanceerde printopties
+  Dubbelzijdig printen voor papierbesparende afdrukken.
+  Pagina oriëntatie: Kies tussen Portret en Landschap.
+  Kwaliteitsinstellingen: Snel (besparing), Normaal, of Hoog (beste kwaliteit).
+
 Versie 2.0 - Wat is er nieuw?
 
-**NVict Reader is digitaal ondertekend.** 
-Dit betekent dat de software is geverifieerd en de integriteit van het bestand is gewaarborgd. 
-Een digitale handtekening garandeert dat de code niet is aangepast door derden en voorkomt 
+**NVict Reader is digitaal ondertekend.**
+Dit betekent dat de software is geverifieerd en de integriteit van het bestand is gewaarborgd.
+Een digitale handtekening garandeert dat de code niet is aangepast door derden en voorkomt
 onnodige waarschuwingen van Windows SmartScreen bij het opstarten. 
 
 
