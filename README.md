@@ -11,7 +11,7 @@ NVict Reader is een snelle en gebruiksvriendelijke PDF-lezer met ondersteuning v
 
 ## 🚀 Nieuw in Versie 2.1
 
-* **Geavanceerde printopties**: Dubbelzijdig printen, pagina oriëntatie (Portret/Landschap) en kwaliteitsinstellingen (Snel/Normaal/Hoog).
+* **Geavanceerde printopties**: Dubbelzijdig printen, pagina oriëntatie (Staand/Liggend) en kwaliteitsinstellingen (Snel/Normaal/Hoog).
 * **Betere controle bij afdrukken**: Meer mogelijkheden om de afdruk naar jouw wensen aan te passen.
 
 ## 🚀 Nieuw in Versie 2.0

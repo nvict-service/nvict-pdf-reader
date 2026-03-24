@@ -1515,7 +1515,7 @@ class NVictReader:
         tab = self.get_active_tab()
         has_pdf = isinstance(tab, PDFTab)
         
-        for btn in [self.close_btn, self.save_btn, self.print_btn, self.zoom_in_btn,
+        for btn in [self.close_btn, self.print_btn, self.zoom_in_btn,
                    self.zoom_out_btn, self.fit_width_btn, self.prev_btn,
                    self.next_btn, self.copy_btn, self.search_btn, self.info_btn, self.edit_btn,
                    self.highlight_btn, self.book_btn]:
@@ -2489,7 +2489,7 @@ class NVictReader:
         if isinstance(tab, PDFTab):
             print_dialog = tk.Toplevel(self.root)
             print_dialog.title("Afdrukken")
-            print_dialog.geometry("550x720")
+            print_dialog.geometry("650x730")
             print_dialog.configure(bg=self.theme["BG_PRIMARY"])
             print_dialog.transient(self.root)
             print_dialog.grab_set()
@@ -2511,9 +2511,35 @@ class NVictReader:
             tk.Label(header_frame, text="🖨️ PDF Afdrukken", font=("Segoe UI", 14, "bold"),
                     bg=self.theme["ACCENT_COLOR"], fg="white").pack(pady=15)
             
-            # Main content
-            content_frame = tk.Frame(print_dialog, bg=self.theme["BG_PRIMARY"])
-            content_frame.pack(fill=tk.BOTH, expand=True, padx=30, pady=20)
+            # Main content with scrollbar
+            canvas = tk.Canvas(print_dialog, bg=self.theme["BG_PRIMARY"], highlightthickness=0)
+            scrollbar = ttk.Scrollbar(print_dialog, orient="vertical", command=canvas.yview)
+            content_frame = tk.Frame(canvas, bg=self.theme["BG_PRIMARY"])
+
+            content_frame.bind(
+                "<Configure>",
+                lambda e: canvas.configure(scrollregion=canvas.bbox("all"))
+            )
+
+            canvas.create_window((0, 0), window=content_frame, anchor="nw")
+            canvas.configure(yscrollcommand=scrollbar.set)
+
+            # Knoppen ALTIJD ZICHTBAAR ONDERAAN (voor canvas packing!)
+            btn_frame = tk.Frame(print_dialog, bg=self.theme["BG_SECONDARY"], height=70)
+            btn_frame.pack(fill=tk.X, side=tk.BOTTOM)
+            btn_frame.pack_propagate(False)
+
+            button_container = tk.Frame(btn_frame, bg=self.theme["BG_SECONDARY"])
+            button_container.pack(expand=True)
+
+            # Canvas met scrollbar bovenaan
+            canvas.pack(side="left", fill="both", expand=True, padx=20, pady=20)
+            scrollbar.pack(side="right", fill="y", padx=(0, 20), pady=20)
+
+            # Mousewheel scrolling
+            def _on_mousewheel(event):
+                canvas.yview_scroll(int(-1*(event.delta/120)), "units")
+            canvas.bind_all("<MouseWheel>", _on_mousewheel)
             
             # Document info
             tk.Label(content_frame, text="Document:", font=("Segoe UI", 9, "bold"),
@@ -2736,14 +2762,14 @@ class NVictReader:
             orient_frame = tk.Frame(content_frame, bg=self.theme["BG_PRIMARY"])
             orient_frame.pack(fill=tk.X, pady=(0, 10))
 
-            orientation_var = tk.StringVar(value="portret")
-            tk.Radiobutton(orient_frame, text="Portret", variable=orientation_var, value="portret",
+            orientation_var = tk.StringVar(value="staand")
+            tk.Radiobutton(orient_frame, text="Staand", variable=orientation_var, value="staand",
                           bg=self.theme["BG_PRIMARY"], fg=self.theme["TEXT_PRIMARY"],
                           selectcolor=self.theme["BG_SECONDARY"],
                           activebackground=self.theme["BG_PRIMARY"],
                           activeforeground=self.theme["TEXT_PRIMARY"],
                           font=("Segoe UI", 9)).pack(side=tk.LEFT, padx=(0, 20))
-            tk.Radiobutton(orient_frame, text="Landschap", variable=orientation_var, value="landschap",
+            tk.Radiobutton(orient_frame, text="Liggend", variable=orientation_var, value="liggend",
                           bg=self.theme["BG_PRIMARY"], fg=self.theme["TEXT_PRIMARY"],
                           selectcolor=self.theme["BG_SECONDARY"],
                           activebackground=self.theme["BG_PRIMARY"],
@@ -2776,15 +2802,6 @@ class NVictReader:
                           activebackground=self.theme["BG_PRIMARY"],
                           activeforeground=self.theme["TEXT_PRIMARY"],
                           font=("Segoe UI", 9)).pack(side=tk.LEFT)
-
-            # Knoppen
-            btn_frame = tk.Frame(print_dialog, bg=self.theme["BG_SECONDARY"], height=70)
-            btn_frame.pack(fill=tk.X, side=tk.BOTTOM)
-            btn_frame.pack_propagate(False)
-
-            button_container = tk.Frame(btn_frame, bg=self.theme["BG_SECONDARY"])
-            button_container.pack(expand=True)
-
             def open_windows_print():
                 try:
                     import win32print
@@ -2817,6 +2834,16 @@ class NVictReader:
                     duplex = duplex_var.get()
                     orientation = orientation_var.get()
                     quality = quality_var.get()
+
+                    # Waarschuwing als duplex is geselecteerd
+                    if duplex:
+                        if not messagebox.askyesno("Dubbelzijdig Printen",
+                            "Dubbelzijdig printen is geselecteerd.\n\n"
+                            "Let op: Niet alle printers ondersteunen automatisch dubbelzijdig printen.\n\n"
+                            "Als uw printer dit niet ondersteunt, ziet u een dialoog om\n"
+                            "het papier handmatig om te draaien.\n\n"
+                            "Wilt u doorgaan?"):
+                            return
 
                     # Bepaal welke pagina's te printen
                     if page_opt == "current":
