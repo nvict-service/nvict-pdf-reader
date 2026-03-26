@@ -530,7 +530,12 @@ class PDFTab(tk.Frame):
         # Authenticeer met wachtwoord indien nodig
         if password and self.pdf_document.needs_pass:
             self.pdf_document.authenticate(password)
-        
+
+        # Detecteer beveiliging en ondertekening
+        self.is_encrypted = self.pdf_document.is_encrypted
+        self.is_signed = self._detect_signatures()
+        self.security_info = self._get_security_info()
+
         self.current_page = 0
         self.zoom_level = 1.0
         self.zoom_mode = "fit_width"
@@ -570,6 +575,58 @@ class PDFTab(tk.Frame):
         # Weergave modi
         self.book_mode = False   # Boek-modus: twee pagina's naast elkaar
         self.page_regions = {}   # {page_num: (x0, y0, x1, y1)} canvas bounding box per pagina
+
+    def _detect_signatures(self):
+        """Detecteer of het PDF digitaal ondertekend is"""
+        try:
+            # Controleer voor signature fields in alle pagina's
+            for page_num in range(len(self.pdf_document)):
+                page = self.pdf_document[page_num]
+                annots = page.annots()
+                if annots:
+                    for annot in annots:
+                        if annot and annot.info.get('subtype') == 'Sig':
+                            return True
+        except:
+            pass
+        return False
+
+    def _get_security_info(self):
+        """Haal beveiligingsinformatie op"""
+        info = []
+
+        try:
+            # Controleer op encryptie/wachtwoord
+            if self.is_encrypted:
+                info.append("🔒 Beveiligd (wachtwoord)")
+
+            # Controleer op permission restrictions
+            try:
+                perms = self.pdf_document.permissions
+                restrictions = []
+
+                if not (perms & 4):      # Bit 2: Print
+                    restrictions.append("afdrukken")
+                if not (perms & 8):      # Bit 3: Modify
+                    restrictions.append("bewerken")
+                if not (perms & 16):     # Bit 4: Copy
+                    restrictions.append("kopiëren")
+                if not (perms & 32):     # Bit 5: Add annotations
+                    restrictions.append("annotaties")
+
+                if restrictions:
+                    info.append(f"🔐 Beperkt ({', '.join(restrictions)})")
+            except:
+                pass
+
+            # Controleer op digitale handtekeningen
+            if self.is_signed:
+                info.append("🔏 Digitaal ondertekend")
+
+        except:
+            pass
+
+        return " | ".join(info) if info else ""
 
     def close_document(self):
         if self.pdf_document:
@@ -1514,21 +1571,32 @@ class NVictReader:
     def update_ui_state(self):
         tab = self.get_active_tab()
         has_pdf = isinstance(tab, PDFTab)
-        
+
         for btn in [self.close_btn, self.print_btn, self.zoom_in_btn,
                    self.zoom_out_btn, self.fit_width_btn, self.prev_btn,
                    self.next_btn, self.copy_btn, self.search_btn, self.info_btn, self.edit_btn,
                    self.highlight_btn, self.book_btn]:
             btn.config(state=tk.NORMAL if has_pdf else tk.DISABLED)
-        
+
         if has_pdf:
             self.page_var.set(str(tab.current_page + 1))
             self.total_pages_label.config(text=f"/ {len(tab.pdf_document)}")
-            self.status_label.config(text=f"Zoom: {int(tab.zoom_level * 100)}%")
+            # Update statusbar met zoom en beveiligingsinformatie
+            self.update_status_with_security(tab)
         else:
             self.page_var.set("1")
             self.total_pages_label.config(text="/ 0")
             self.status_label.config(text="Geen document geopend")
+
+    def update_status_with_security(self, tab):
+        """Update statusbar met zoom en beveiligingsinformatie"""
+        status_text = f"Zoom: {int(tab.zoom_level * 100)}%"
+
+        # Voeg beveiligingsinformatie toe indien beschikbaar
+        if hasattr(tab, 'security_info') and tab.security_info:
+            status_text += f"  ·  {tab.security_info}"
+
+        self.status_label.config(text=status_text)
 
     def open_pdf(self):
         file_path = filedialog.askopenfilename(
