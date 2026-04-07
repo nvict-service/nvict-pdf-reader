@@ -3533,9 +3533,10 @@ class NVictReader:
                 rect = fitz.Rect(pdf_x, pdf_y,
                                  pdf_x + approx_width + 10,
                                  pdf_y + approx_height + 5)
+                fontname = annot.get("fontname", "helv")
                 annot_obj = page.add_freetext_annot(
                     rect, text,
-                    fontsize=font_size, fontname="helv",
+                    fontsize=font_size, fontname=fontname,
                     text_color=color, fill_color=(1, 1, 1),
                 )
                 annot_obj.update()
@@ -4109,6 +4110,15 @@ class NVictReader:
         except:
             pass
 
+        # ── Sluit eventueel bestaand editor-venster (max 1 tegelijk) ──
+        for old in list(tab.text_annot_widgets):
+            try:
+                tab.canvas.delete(old["win_id"])
+                old["frame"].destroy()
+            except Exception:
+                pass
+        tab.text_annot_widgets.clear()
+
         # ── Hoofdframe voor de editor ──
         is_dark = self.theme == Theme.DARK
         editor_bg = self.theme["BG_PRIMARY"]
@@ -4119,41 +4129,66 @@ class NVictReader:
                               highlightbackground=self.theme["ACCENT_COLOR"],
                               highlightthickness=2)
 
-        # ── Toolbar BOVENIN met opties ──
-        toolbar = tk.Frame(annot_frame, bg=toolbar_bg, height=36)
+        # ── Toolbar BOVENIN met opties (twee rijen) ──
+        toolbar = tk.Frame(annot_frame, bg=toolbar_bg)
         toolbar.pack(fill=tk.X, side=tk.TOP)
-        toolbar.pack_propagate(False)
+
+        # Rij 1: Lettertype en grootte
+        row1 = tk.Frame(toolbar, bg=toolbar_bg)
+        row1.pack(fill=tk.X, padx=4, pady=(4, 0))
+
+        # Lettertype keuze
+        font_map = {
+            "Helvetica": "helv",
+            "Times Roman": "tiro",
+            "Courier": "cour",
+        }
+        font_var = tk.StringVar(value="Helvetica")
+        tk.Label(row1, text="Lettertype:", font=("Segoe UI", 9, "bold"),
+                bg=toolbar_bg, fg=self.theme["TEXT_PRIMARY"]).pack(side=tk.LEFT, padx=(2, 2))
+        font_combo = ttk.Combobox(row1, textvariable=font_var, width=13,
+                                  values=list(font_map.keys()), state="readonly",
+                                  font=("Segoe UI", 9))
+        font_combo.pack(side=tk.LEFT, padx=(0, 10))
 
         # Lettergrootte
         size_var = tk.IntVar(value=11)
-        tk.Label(toolbar, text="Grootte:", font=("Segoe UI", 9, "bold"),
-                bg=toolbar_bg, fg=self.theme["TEXT_PRIMARY"]).pack(side=tk.LEFT, padx=(6, 2))
-        size_spin = tk.Spinbox(toolbar, from_=6, to=36, width=3, textvariable=size_var,
+        tk.Label(row1, text="Grootte:", font=("Segoe UI", 9, "bold"),
+                bg=toolbar_bg, fg=self.theme["TEXT_PRIMARY"]).pack(side=tk.LEFT, padx=(0, 2))
+        size_spin = tk.Spinbox(row1, from_=6, to=36, width=3, textvariable=size_var,
                               font=("Segoe UI", 10),
                               bg=self.theme["BG_PRIMARY"], fg=self.theme["TEXT_PRIMARY"],
                               buttonbackground=toolbar_bg)
-        size_spin.pack(side=tk.LEFT, padx=(0, 8))
+        size_spin.pack(side=tk.LEFT, padx=(0, 4))
 
-        # Kleurkeuze met gekleurde knoppen — gebruik leesbare kleuren in donker thema
+        # Rij 2: Kleuren en knoppen
+        row2 = tk.Frame(toolbar, bg=toolbar_bg)
+        row2.pack(fill=tk.X, padx=4, pady=(2, 4))
+
+        # Kleurkeuze met gekleurde knoppen
         color_var = tk.StringVar(value="black")
-        if is_dark:
-            colors = [("Zwart", "black", "#cccccc"), ("Rood", "red", "#ff6666"),
-                      ("Blauw", "#0066CC", "#66aaff"), ("Groen", "darkgreen", "#66cc66")]
-        else:
-            colors = [("Zwart", "black", "black"), ("Rood", "red", "red"),
-                      ("Blauw", "#0066CC", "#0066CC"), ("Groen", "darkgreen", "darkgreen")]
-        for label, color, display_color in colors:
-            rb = tk.Radiobutton(toolbar, text=f"  {label}  ", variable=color_var, value=color,
+        colors_cfg = [
+            ("Zwart", "black",     "#333333" if is_dark else "#222222", "white" if is_dark else "white"),
+            ("Rood",  "red",       "#cc3333",                          "white"),
+            ("Blauw", "#0066CC",   "#2266bb",                          "white"),
+            ("Groen", "darkgreen", "#228833",                          "white"),
+        ]
+        for label, color_val, btn_bg, btn_fg in colors_cfg:
+            rb = tk.Radiobutton(row2, text=f" {label} ", variable=color_var, value=color_val,
                                font=("Segoe UI", 9, "bold"),
-                               bg=toolbar_bg,
-                               fg=display_color, selectcolor=toolbar_bg,
-                               activebackground=toolbar_bg,
-                               activeforeground=display_color,
-                               indicatoron=False, relief="flat",
+                               bg=btn_bg, fg=btn_fg,
+                               selectcolor=btn_bg,
+                               activebackground=btn_bg,
+                               activeforeground=btn_fg,
+                               indicatoron=False, relief="raised", bd=1,
                                overrelief="groove", cursor="hand2")
-            rb.pack(side=tk.LEFT, padx=1)
+            rb.pack(side=tk.LEFT, padx=2)
 
-        # Akkoord/Annuleer knoppen RECHTS in toolbar
+        # Bepaal of dit een bewerking is van een bestaande annotatie
+        edit_index = getattr(self, '_editing_annot_index', None)
+        self._editing_annot_index = None  # Reset
+
+        # Akkoord/Annuleer/Verwijder knoppen RECHTS in rij 2
         def save_annotation():
             text_content = txt.get("1.0", "end-1c").strip()
             if text_content:
@@ -4161,15 +4196,30 @@ class NVictReader:
                 pdf_y = (cy - py0) / zoom
                 font_size = size_var.get()
                 text_color = color_var.get()
+                chosen_font = font_map.get(font_var.get(), "helv")
 
-                tab.text_annotations.append({
+                annot_data = {
                     "page_num": target_page,
                     "pdf_x": pdf_x,
                     "pdf_y": pdf_y,
                     "text": text_content,
                     "font_size": font_size,
                     "color": text_color,
-                })
+                    "fontname": chosen_font,
+                }
+                if edit_index is not None and 0 <= edit_index < len(tab.text_annotations):
+                    tab.text_annotations[edit_index] = annot_data
+                else:
+                    tab.text_annotations.append(annot_data)
+            tab.canvas.delete(win_id)
+            annot_frame.destroy()
+            tab.text_annot_widgets = [w for w in tab.text_annot_widgets if w["win_id"] != win_id]
+            self.display_page(tab)
+            self._update_save_button_state()
+
+        def delete_annotation():
+            if edit_index is not None and 0 <= edit_index < len(tab.text_annotations):
+                tab.text_annotations.pop(edit_index)
             tab.canvas.delete(win_id)
             annot_frame.destroy()
             tab.text_annot_widgets = [w for w in tab.text_annot_widgets if w["win_id"] != win_id]
@@ -4182,7 +4232,7 @@ class NVictReader:
             tab.text_annot_widgets = [w for w in tab.text_annot_widgets if w["win_id"] != win_id]
 
         # Akkoord knop met check.png icoon
-        save_btn = tk.Button(toolbar, command=save_annotation,
+        save_btn = tk.Button(row2, command=save_annotation,
                             bg=self.theme["ACCENT_COLOR"], fg="white",
                             relief="flat", cursor="hand2", padx=6, pady=2)
         if check_icon:
@@ -4190,10 +4240,18 @@ class NVictReader:
             save_btn._icon = check_icon  # Voorkom garbage collection
         else:
             save_btn.config(text="OK", font=("Segoe UI", 9, "bold"))
-        save_btn.pack(side=tk.RIGHT, padx=(2, 6), pady=4)
+        save_btn.pack(side=tk.RIGHT, padx=(2, 6))
+
+        # Verwijder knop (alleen bij bewerken van bestaande annotatie)
+        if edit_index is not None:
+            del_btn = tk.Button(row2, text=" Verwijder", command=delete_annotation,
+                               bg=self.theme["ERROR_COLOR"], fg="white",
+                               font=("Segoe UI", 9, "bold"),
+                               relief="flat", cursor="hand2", padx=6, pady=2)
+            del_btn.pack(side=tk.RIGHT, padx=2)
 
         # Annuleer knop met close.png icoon
-        cancel_btn = tk.Button(toolbar, command=cancel_annotation,
+        cancel_btn = tk.Button(row2, command=cancel_annotation,
                               bg=self.theme["BG_PRIMARY"], fg=self.theme["TEXT_PRIMARY"],
                               relief="flat", cursor="hand2", padx=6, pady=2)
         if close_icon:
@@ -4209,6 +4267,17 @@ class NVictReader:
                       insertbackground=editor_fg,
                       bd=0, highlightthickness=0, padx=6, pady=4)
         txt.pack(fill=tk.BOTH, expand=True)
+
+        # Vul editor met bestaande annotatie-gegevens bij bewerking
+        if edit_index is not None and 0 <= edit_index < len(tab.text_annotations):
+            existing = tab.text_annotations[edit_index]
+            txt.insert("1.0", existing.get("text", ""))
+            size_var.set(existing.get("font_size", 11))
+            color_var.set(existing.get("color", "black"))
+            # Herstel lettertype
+            reverse_font_map = {v: k for k, v in font_map.items()}
+            saved_font = existing.get("fontname", "helv")
+            font_var.set(reverse_font_map.get(saved_font, "Helvetica"))
 
         # ── Positie berekenen: binnen zichtbaar venster houden ──
         editor_w = max(int(320 * zoom), 280)
@@ -4236,12 +4305,24 @@ class NVictReader:
         tab.text_annot_widgets.append({"win_id": win_id, "frame": annot_frame})
         txt.focus_set()
 
+    def _edit_text_annotation(self, event, annot_index):
+        """Markeer een bestaande annotatie voor bewerking.
+        De daadwerkelijke editor wordt geopend door _on_text_annotate_click
+        die daarna via de canvas <Button-1> binding wordt aangeroepen."""
+        tab = self.get_active_tab()
+        if not isinstance(tab, PDFTab) or not tab.text_annotate_mode:
+            return
+        if annot_index < 0 or annot_index >= len(tab.text_annotations):
+            return
+        # Zet index; _on_text_annotate_click pikt dit op
+        self._editing_annot_index = annot_index
+
     def _draw_text_annotations(self, tab):
         """Teken opgeslagen tekst-annotaties op de canvas"""
         tab.canvas.delete("text_annotation")
         zoom = tab.zoom_level
 
-        for annot in tab.text_annotations:
+        for idx, annot in enumerate(tab.text_annotations):
             page_num = annot["page_num"]
             if page_num not in tab.page_regions:
                 continue
@@ -4251,14 +4332,25 @@ class NVictReader:
             cy = annot["pdf_y"] * zoom + py0
             font_size = max(int(annot["font_size"] * zoom), 7)
             color = annot.get("color", "black")
+            display_color = color
 
-            tab.canvas.create_text(
+            # Vertaal PDF-fontnaam naar Tkinter-fontnaam
+            pdf_fontname = annot.get("fontname", "helv")
+            tk_font_map = {"helv": "Helvetica", "tiro": "Times New Roman", "cour": "Courier New"}
+            tk_font = tk_font_map.get(pdf_fontname, "Helvetica")
+
+            annot_tag = f"text_annot_{idx}"
+            item_id = tab.canvas.create_text(
                 cx, cy, anchor="nw",
                 text=annot["text"],
-                font=("Segoe UI", font_size),
-                fill=color,
-                tags="text_annotation"
+                font=(tk_font, font_size),
+                fill=display_color,
+                tags=("text_annotation", annot_tag)
             )
+
+            # Klik-binding voor bewerken/verwijderen (alleen in tekst-modus)
+            tab.canvas.tag_bind(annot_tag, "<Button-1>",
+                                lambda e, i=idx: self._edit_text_annotation(e, i))
 
     def save_annotations_to_pdf(self):
         """Sla alle tekst-annotaties op in een nieuw PDF-bestand"""
@@ -4313,10 +4405,11 @@ class NVictReader:
                                 pdf_x + approx_width + 10,
                                 pdf_y + approx_height + 5)
 
+                fontname = annot.get("fontname", "helv")
                 annot_obj = page.add_freetext_annot(
                     rect, text,
                     fontsize=font_size,
-                    fontname="helv",
+                    fontname=fontname,
                     text_color=color,
                     fill_color=(1, 1, 1),  # Witte achtergrond
                     border_color=None,
