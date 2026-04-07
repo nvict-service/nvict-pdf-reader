@@ -1,3 +1,46 @@
+Versie 2.2 - Wat is er nieuw?
+
+Formuliervelden invullen
+  Open een PDF-formulier en vul tekstvelden, checkboxes en keuzelijsten direct in.
+  Velden worden automatisch gemarkeerd met een lichtblauwe achtergrond.
+  Klik op een gemarkeerd veld om formuliermodus te activeren.
+  Ondersteunt meerregelige tekstvelden (opmerkingen).
+
+Vrije tekst-annotaties
+  Klik op een willekeurige plek in de PDF om tekst te plaatsen.
+  Instelbare lettergrootte (6-36) en kleur (zwart, rood, blauw, groen).
+  Tekst-editor past zich aan het licht/donker thema aan.
+
+Tekst markeren verbeterd
+  Markeren werkt nu in 1 stap: selecteer tekst en de gele markering verschijnt direct.
+  Geen tussenstap meer met blauwe selectie.
+
+Slimme opslaan-knop
+  De opslaan-knop is alleen actief wanneer er wijzigingen zijn.
+  Formuliervelden, tekst-annotaties en markeringen worden samen opgeslagen.
+
+Doorsturen met wijzigingen
+  Bij het doorsturen per e-mail worden alle aanpassingen meegestuurd.
+  Markeringen, tekst-annotaties en formuliervelden worden in de PDF verwerkt.
+
+Drag-and-drop
+  Sleep een PDF-bestand direct in het venster om het te openen.
+
+Verbeterde werkbalk
+  Overzichtelijke indeling: Bestand, Bewerking, Weergave, Navigatie.
+  Actieve bewerkingsknoppen zijn duidelijk herkenbaar met accentlijn.
+  Nieuwe iconen voor Pagina's, Markeer en Boek.
+
+Donker thema verbeterd
+  Tekst-editor toolbar en iconen zijn nu goed leesbaar in donker thema.
+  Kleurknoppen in de tekst-editor passen zich aan het thema aan.
+
+Zoekfunctie verbeterd
+  Zoeken werkt nu correct bij formulier-PDF's (geen crash meer).
+
+Flaticon credits
+  Iconen afkomstig van Freepik - Flaticon, vermeld in de info-dialoog.
+
 Versie 2.1 - Wat is er nieuw?
 
 Geavanceerde printopties
@@ -9,7 +52,7 @@ Versie 2.0 - Wat is er nieuw?
 
 NVict Reader is digitaal ondertekend
 - Software is geverifieerd en integriteit is gewaarborgd
-- Geen onnodige waarschuwingen van Windows SmartScreen 
+- Geen onnodige waarschuwingen van Windows SmartScreen
 
 
 Versie 1.9 - Wat is er nieuw?

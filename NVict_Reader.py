@@ -5,7 +5,7 @@ Gebaseerd op de UI-stijl van NV Sync
 Ontwikkeld door NVict Service
 
 Website: www.nvict.nl
-Versie: 2.0
+Versie: 2.2
 """
 
 import sys
@@ -29,7 +29,7 @@ import socket
 import time
 
 # Applicatie versie
-APP_VERSION = "2.1"
+APP_VERSION = "2.2"
 UPDATE_CHECK_URL = "https://www.nvict.nl/software/updates/nvict_reader_version.json"
 
 # ====================================================================
@@ -576,6 +576,16 @@ class PDFTab(tk.Frame):
         self.book_mode = False   # Boek-modus: twee pagina's naast elkaar
         self.page_regions = {}   # {page_num: (x0, y0, x1, y1)} canvas bounding box per pagina
 
+        # Formulier invulvelden
+        self.form_mode = False           # Formuliermodus aan/uit
+        self.form_widgets = []           # Lijst van (canvas_window_id, widget, field_info) tuples
+        self.form_field_values = {}      # {field_xref: waarde} opgeslagen waarden
+
+        # Vrije tekst annotaties
+        self.text_annotate_mode = False  # Tekst-annotatiemodus aan/uit
+        self.text_annotations = []       # [(page_num, pdf_x, pdf_y, text, font_size), ...]
+        self.text_annot_widgets = []     # Actieve canvas overlay widgets
+
     def _detect_signatures(self):
         """Detecteer of het PDF digitaal ondertekend is"""
         try:
@@ -704,24 +714,42 @@ class NVictReader:
 
     def setup_drag_and_drop(self):
         """Configureer drag-and-drop ondersteuning voor PDF bestanden"""
-        # Probeer tkinterdnd2 te gebruiken
         try:
-            from tkinterdnd2 import DND_FILES, TkinterDnD
-            
-            # Re-initialiseer root als TkinterDnD root
-            # Dit werkt niet na het feit dat root al is gemaakt
-            # Daarom geven we instructies aan de gebruiker
-            raise ImportError("tkinterdnd2 moet bij installatie worden ingesteld")
-            
+            import windnd
+
+            def on_drop(file_list):
+                """Verwerk gesleepte bestanden"""
+                for file_bytes in file_list:
+                    # windnd geeft bytes terug, decodeer naar string
+                    if isinstance(file_bytes, bytes):
+                        file_path = file_bytes.decode('utf-8', errors='replace')
+                    else:
+                        file_path = str(file_bytes)
+
+                    # Verwijder eventuele aanhalingstekens
+                    file_path = file_path.strip('"').strip("'")
+
+                    if file_path.lower().endswith('.pdf') and os.path.isfile(file_path):
+                        self.add_new_tab(file_path)
+
+            windnd.hook_dropfiles(self.root, func=on_drop)
+
         except ImportError:
-            # tkinterdnd2 is niet beschikbaar
-            # Toon instructie aan gebruiker voor alternatieve methode
-            print("Drag-and-drop vereist tkinterdnd2 library")
-            print("Alternatief: Gebruik rechtsklik -> Openen met -> NVict Reader in Windows Verkenner")
-            print("Of gebruik Bestand -> Openen binnen het programma")
-            
-            # Zorg dat file associations werken (via sys.argv - dit werkt al)
-            pass
+            # windnd niet beschikbaar — probeer tkinterdnd2 als fallback
+            try:
+                from tkinterdnd2 import DND_FILES
+                self.root.drop_target_register(DND_FILES)
+                self.root.dnd_bind('<<Drop>>', self._on_tkdnd_drop)
+            except Exception:
+                pass  # Geen drag-and-drop beschikbaar, programma werkt verder zonder
+
+    def _on_tkdnd_drop(self, event):
+        """Fallback drop handler voor tkinterdnd2"""
+        files = self.root.tk.splitlist(event.data)
+        for f in files:
+            f = f.strip('"').strip("'")
+            if f.lower().endswith('.pdf') and os.path.isfile(f):
+                self.add_new_tab(f)
 
     def apply_theme(self):
         saved = getattr(self, 'update_settings', {}).get('theme', 'Systeemstandaard')
@@ -759,7 +787,9 @@ class NVictReader:
         "first-page": "first-page.png", "last-page": "last-page.png", "info": "info.png",
         "copy": "copy.png", "search": "search.png", "pdf": "pdf.png",
         "fit-width": "fit-width.png", "save": "save.png", "toolbox": "toolbox.png",
-        "full-screen": "full-screen.png", "theme": "theme.png"
+        "full-screen": "full-screen.png", "theme": "theme.png",
+        "send": "send.png", "form": "form.png", "type-text": "type-text.png",
+        "pages": "pages.png", "marker": "marker.png", "book": "book.png"
     }
 
     def load_icons(self):
@@ -983,56 +1013,55 @@ class NVictReader:
         self.toolbar_frame.config(bg=self.theme["BG_SECONDARY"])
 
         f = self.toolbar_frame
-        # Openen, Sluiten, Opslaan, Printen
+        # ── Groep 1: Bestand ──
         self.open_btn = self.create_toolbar_button(f, " Openen", "open",
                                                    self.open_pdf, self.theme["ACCENT_COLOR"])
-        self.close_btn = self.create_toolbar_button(f, " Sluiten", "close",
-                                                    self.close_active_tab, self.theme["BG_SECONDARY"])
+        self.save_btn = self.create_toolbar_button(f, " Opslaan", "save",
+                                                   self.save_changes_to_pdf, self.theme["BG_SECONDARY"])
+        self.send_btn = self.create_toolbar_button(f, " Doorsturen", "send",
+                                                   self.send_pdf, self.theme["BG_SECONDARY"])
         self.print_btn = self.create_toolbar_button(f, " Printen", "print",
                                                     self.print_pdf, self.theme["BG_SECONDARY"])
         self.add_toolbar_separator(f)
 
-        # Zoeken, Kopiëren, Volledig scherm, Info, Bewerken, Thema
-        self.search_btn = self.create_toolbar_button(f, " Zoeken", "search",
-                                                     self.show_search_dialog, self.theme["BG_SECONDARY"])
+        # ── Groep 2: Bewerking ──
         self.copy_btn = self.create_toolbar_button(f, " Kopiëren", "copy",
                                                    self.copy_text, self.theme["BG_SECONDARY"])
-        self.fullscreen_btn = self.create_toolbar_button(f, " Volledig scherm", "full-screen",
-                                                         self.toggle_fullscreen, self.theme["BG_SECONDARY"])
-        self.info_btn = self.create_toolbar_button(f, " Info", "info",
-                                                   self.show_pdf_info, self.theme["BG_SECONDARY"])
+        self.highlight_btn = self.create_toolbar_button(
+            f, " Markeer", "marker", self.toggle_highlight_mode,
+            self.theme["BG_SECONDARY"]
+        )
         self.edit_btn = self.create_toolbar_button(f, " Bewerken", "toolbox",
                                                    self.show_edit_menu, self.theme["BG_SECONDARY"])
-        self.theme_btn = self.create_toolbar_button(f, " Thema", "theme",
-                                                    self.toggle_theme, self.theme["BG_SECONDARY"])
+        self.type_text_btn = self.create_toolbar_button(f, " Tekst", "type-text",
+                                                        self.toggle_text_annotate_mode, self.theme["BG_SECONDARY"])
+        self.form_btn = self.create_toolbar_button(f, " Formulier", "form",
+                                                   self.toggle_form_mode, self.theme["BG_SECONDARY"])
+        self.search_btn = self.create_toolbar_button(f, " Zoeken", "search",
+                                                     self.show_search_dialog, self.theme["BG_SECONDARY"])
         self.add_toolbar_separator(f)
 
-        # Zoom knoppen
+        # ── Groep 3: Weergave ──
+        self.fullscreen_btn = self.create_toolbar_button(f, " Volledig scherm", "full-screen",
+                                                         self.toggle_fullscreen, self.theme["BG_SECONDARY"])
+        self.fit_width_btn = self.create_toolbar_button(f, "", "fit-width",
+                                                        lambda: self.set_zoom_mode("fit_width"),
+                                                        self.theme["BG_SECONDARY"])
         self.zoom_in_btn = self.create_toolbar_button(f, "", "zoom-in",
                                                       self.zoom_in, self.theme["BG_SECONDARY"])
         self.zoom_out_btn = self.create_toolbar_button(f, "", "zoom-out",
                                                        self.zoom_out, self.theme["BG_SECONDARY"])
-        self.fit_width_btn = self.create_toolbar_button(f, "", "fit-width",
-                                                        lambda: self.set_zoom_mode("fit_width"),
-                                                        self.theme["BG_SECONDARY"])
         self.add_toolbar_separator(f)
 
-        # Thumbnail, markeer, boek-modus
+        # ── Groep 4: Navigatie ──
         self.thumb_btn = self.create_toolbar_button(
-            f, " Pagina's", "thumbnails", self.toggle_thumbnail_panel,
+            f, " Pagina's", "pages", self.toggle_thumbnail_panel,
             self.theme["ACCENT_COLOR"] if self.thumbnail_visible else self.theme["BG_SECONDARY"]
-        )
-        self.highlight_btn = self.create_toolbar_button(
-            f, " Markeer", "highlight", self.toggle_highlight_mode,
-            self.theme["BG_SECONDARY"]
         )
         self.book_btn = self.create_toolbar_button(
             f, " Boek", "book", self.toggle_book_mode,
             self.theme["BG_SECONDARY"]
         )
-        self.add_toolbar_separator(f)
-
-        # Pagina navigatie
         self.prev_btn = self.create_toolbar_button(f, "", "prev-page",
                                                    self.prev_page, self.theme["BG_SECONDARY"])
         self.next_btn = self.create_toolbar_button(f, "", "next-page",
@@ -1070,9 +1099,12 @@ class NVictReader:
         "fit-width":   "Pasbreedte",
         "prev-page":   "Vorige pagina  (←)",
         "next-page":   "Volgende pagina  (→)",
-        "thumbnails":  "Pagina's paneel tonen/verbergen  (Ctrl+T)",
-        "highlight":   "Markeermodus: selecteer tekst om te markeren  (Ctrl+H)",
+        "pages":       "Pagina's paneel tonen/verbergen  (Ctrl+T)",
+        "marker":      "Markeermodus: selecteer tekst om te markeren  (Ctrl+H)",
         "book":        "Boek-modus: twee pagina's naast elkaar  (Ctrl+B)",
+        "send":        "PDF doorsturen per e-mail",
+        "form":        "Formuliervelden invullen aan/uit",
+        "type-text":   "Tekst toevoegen op PDF  (dubbelklik op gewenste positie)",
     }
 
     def create_toolbar_button(self, parent, text, icon_name, command, bg_color):
@@ -1101,16 +1133,22 @@ class NVictReader:
             "info": "ℹ️",
             "toolbox": "🛠️",
             "full-screen": "⛶",
-            "theme": "◐"
+            "theme": "◐",
+            "send": "✉",
+            "form": "📝",
+            "type-text": "T",
+            "pages": "📄",
+            "marker": "🖍️",
+            "book": "📖"
         }
-        
+
         # Als icon bestaat, gebruik icon + tekst
         if icon_image:
-            btn = tk.Button(btn_frame, text=text, image=icon_image, 
+            btn = tk.Button(btn_frame, text=text, image=icon_image,
                            compound=tk.LEFT, command=command, font=Theme.FONT_MAIN,
-                           bg=bg_color, fg=self.theme["TEXT_PRIMARY"], 
+                           bg=bg_color, fg=self.theme["TEXT_PRIMARY"],
                            activebackground=self.theme["ACCENT_COLOR"],
-                           activeforeground="#ffffff", relief="flat", bd=0, 
+                           activeforeground="#ffffff", relief="flat", bd=0,
                            padx=10, pady=5, cursor="hand2")
         else:
             # Geen icon - gebruik emoji fallback
@@ -1120,20 +1158,37 @@ class NVictReader:
             elif text and icon_name in emoji_fallbacks:
                 # Voeg emoji toe voor de tekst
                 display_text = emoji_fallbacks[icon_name] + text
-            
+
             btn = tk.Button(btn_frame, text=display_text, command=command, font=Theme.FONT_MAIN,
-                           bg=bg_color, fg=self.theme["TEXT_PRIMARY"], 
+                           bg=bg_color, fg=self.theme["TEXT_PRIMARY"],
                            activebackground=self.theme["ACCENT_COLOR"],
-                           activeforeground="#ffffff", relief="flat", bd=0, 
+                           activeforeground="#ffffff", relief="flat", bd=0,
                            padx=10, pady=5, cursor="hand2")
-        
+
         btn.pack()
-        
+
+        # Accentlijn onder de knop als actieve indicator
+        indicator = tk.Frame(btn_frame, bg=bg_color, height=3)
+        indicator.pack(fill=tk.X, padx=2)
+
+        btn._is_active = False
+        btn._default_bg = bg_color
+        btn._indicator = indicator
+
         def on_enter(e):
-            btn.configure(bg=self.theme["ACCENT_COLOR"], fg="#ffffff")
+            try:
+                btn.configure(bg=self.theme["ACCENT_COLOR"], fg="#ffffff")
+            except (tk.TclError, Exception):
+                pass
         def on_leave(e):
-            btn.configure(bg=bg_color, fg=self.theme["TEXT_PRIMARY"])
-        
+            try:
+                if getattr(btn, '_is_active', False):
+                    btn.configure(bg=self.theme["ACCENT_COLOR"], fg="#ffffff")
+                else:
+                    btn.configure(bg=btn._default_bg, fg=self.theme["TEXT_PRIMARY"])
+            except (tk.TclError, Exception):
+                pass
+
         btn.bind("<Enter>", on_enter)
         btn.bind("<Leave>", on_leave)
         self.toolbar_buttons[icon_name] = (btn, text)
@@ -1142,6 +1197,25 @@ class NVictReader:
             Tooltip(btn, self._TOOLTIPS[icon_name])
 
         return btn
+
+    def _set_toolbar_button_active(self, icon_name, active):
+        """Zet een toolbar-knop visueel actief of inactief."""
+        try:
+            btn_tuple = self.toolbar_buttons.get(icon_name)
+            if btn_tuple:
+                btn = btn_tuple[0]
+                btn._is_active = active
+                indicator = getattr(btn, '_indicator', None)
+                if active:
+                    btn.config(bg=self.theme["ACCENT_COLOR"], fg="white")
+                    if indicator:
+                        indicator.config(bg=self.theme["WARNING_COLOR"])
+                else:
+                    btn.config(bg=btn._default_bg, fg=self.theme["TEXT_PRIMARY"])
+                    if indicator:
+                        indicator.config(bg=btn._default_bg)
+        except (tk.TclError, Exception):
+            pass
 
     def add_toolbar_separator(self, parent):
         separator = tk.Frame(parent, bg=self.theme["TEXT_SECONDARY"], width=1, height=40)
@@ -1186,6 +1260,7 @@ class NVictReader:
         self.root.bind("<Control-minus>", lambda e: self.zoom_out())
         self.root.bind("<Control-c>", lambda e: self.copy_text())
         self.root.bind("<Control-f>", lambda e: self.show_search_dialog())
+        self.root.bind("<Control-s>", lambda e: self.save_changes_to_pdf())
         self.root.bind("<Left>", lambda e: self.prev_page())
         self.root.bind("<Right>", lambda e: self.next_page())
         self.root.bind("<F11>", lambda e: self.toggle_fullscreen())
@@ -1572,11 +1647,20 @@ class NVictReader:
         tab = self.get_active_tab()
         has_pdf = isinstance(tab, PDFTab)
 
-        for btn in [self.close_btn, self.print_btn, self.zoom_in_btn,
+        ui_btns = [self.print_btn, self.zoom_in_btn,
                    self.zoom_out_btn, self.fit_width_btn, self.prev_btn,
-                   self.next_btn, self.copy_btn, self.search_btn, self.info_btn, self.edit_btn,
-                   self.highlight_btn, self.book_btn]:
-            btn.config(state=tk.NORMAL if has_pdf else tk.DISABLED)
+                   self.next_btn, self.copy_btn, self.search_btn, self.edit_btn,
+                   self.highlight_btn, self.book_btn,
+                   self.send_btn, self.form_btn, self.type_text_btn,
+                   self.fullscreen_btn]
+        for btn in ui_btns:
+            try:
+                btn.config(state=tk.NORMAL if has_pdf else tk.DISABLED)
+            except (tk.TclError, Exception):
+                pass
+
+        # Opslaan-knop: alleen actief als er wijzigingen zijn
+        self._update_save_button_state()
 
         if has_pdf:
             self.page_var.set(str(tab.current_page + 1))
@@ -1970,6 +2054,18 @@ class NVictReader:
         # Thumbnails bijwerken na render (actuele pagina markeren)
         self.root.after(50, self.update_thumbnails)
 
+        # Formuliervelden: teken lichtblauwe markeringen als er velden zijn
+        if hasattr(tab, 'form_mode'):
+            self._draw_form_field_highlights(tab)
+            # Overlay widgets opnieuw tekenen als formuliermodus actief is
+            if tab.form_mode:
+                self._save_form_widget_values(tab)
+                self._create_form_overlays(tab)
+
+        # Tekst-annotaties opnieuw tekenen
+        if hasattr(tab, 'text_annotations') and tab.text_annotations:
+            self._draw_text_annotations(tab)
+
     def scroll_to_page(self, tab, page_num):
         """Scroll naar een specifieke pagina"""
         if not hasattr(tab, 'page_positions') or page_num >= len(tab.page_positions):
@@ -1987,9 +2083,13 @@ class NVictReader:
             tab.canvas.yview_moveto(fraction)
 
     def on_click(self, event, tab):
+        # In tekst-annotatiemodus: geen drag-selectie starten
+        if hasattr(tab, 'text_annotate_mode') and tab.text_annotate_mode:
+            return
+
         x = tab.canvas.canvasx(event.x)
         y = tab.canvas.canvasy(event.y)
-        
+
         # Check eerst of er op een link is geklikt
         link_data = self.is_over_link(x, y, tab)
         if link_data:
@@ -2020,13 +2120,20 @@ class NVictReader:
                 tab.canvas.create_image(page_x_offset, page_y_offset, 
                                        anchor="nw", image=photo, tags=f"page_{page_num}")
         
+        # Breng annotaties en form highlights terug naar de voorgrond
+        tab.canvas.tag_raise("form_highlight")
+        tab.canvas.tag_raise("form_values")
+        tab.canvas.tag_raise("text_annotation")
+        tab.canvas.tag_raise("form_overlay")
+        tab.canvas.tag_raise("text_annotation_editor")
+
         # Teken drag rectangle
         if tab.drag_rect:
             tab.canvas.delete(tab.drag_rect)
         tab.drag_rect = tab.canvas.create_rectangle(
             x, y, x, y, outline="red", width=2, tags="drag_rect"
         )
-        
+
         self.status_label.config(text="Selecteren...")
 
     def on_drag(self, event, tab):
@@ -2097,8 +2204,26 @@ class NVictReader:
         if len(selected_words) > 0:
             # Sorteer woorden
             selected_words.sort(key=lambda w: (w[2], w[1]))
-            
-            # Voor elke geselecteerde pagina, maak een highlighted versie
+
+            # Markeermodus: direct gele annotatie toevoegen, geen blauwe selectie
+            if getattr(self, 'highlight_mode', False):
+                # Verzamel tekst
+                tab.selected_text = ""
+                last_y = None
+                for word_data in selected_words:
+                    text_w, wx0, wy0, wx1, wy1 = word_data
+                    if last_y is not None and abs(wy0 - last_y) > 5:
+                        tab.selected_text += "\n"
+                    elif tab.selected_text:
+                        tab.selected_text += " "
+                    tab.selected_text += text_w
+                    last_y = wy0
+                self.apply_highlight_annotation(tab, selected_words)
+                self._update_save_button_state()
+                tab.drag_start = None
+                return
+
+            # Normale modus: teken blauwe selectie-highlight
             _page_regions = getattr(tab, 'page_regions', {})
             for page_num in selected_pages:
                 if not hasattr(tab, 'page_pil_images') or page_num not in tab.page_pil_images:
@@ -2115,7 +2240,7 @@ class NVictReader:
                 draw = ImageDraw.Draw(highlighted, 'RGBA')
 
                 for word_data in selected_words:
-                    text, wx0, wy0, wx1, wy1 = word_data
+                    text_w, wx0, wy0, wx1, wy1 = word_data
 
                     # Check of dit woord op deze pagina valt
                     if page_num in _page_regions:
@@ -2148,28 +2273,31 @@ class NVictReader:
                 tab.canvas.delete(f"page_{page_num}")
                 tab.canvas.create_image(page_x_offset, page_y_offset,
                                         anchor="nw", image=photo, tags=f"page_{page_num}")
-            
+
             # Verzamel tekst
             tab.selected_text = ""
             last_y = None
             for word_data in selected_words:
-                text, wx0, wy0, wx1, wy1 = word_data
-                
+                text_w, wx0, wy0, wx1, wy1 = word_data
+
                 if last_y is not None and abs(wy0 - last_y) > 5:
                     tab.selected_text += "\n"
                 elif tab.selected_text:
                     tab.selected_text += " "
-                
-                tab.selected_text += text
+
+                tab.selected_text += text_w
                 last_y = wy0
-            
-            # Markeermodus: voeg gele PDF-annotatie toe
-            if getattr(self, 'highlight_mode', False) and selected_words:
-                self.apply_highlight_annotation(tab, selected_words)
-            else:
-                self.status_label.config(text=f"Geselecteerd: {len(tab.selected_text)} tekens")
+
+            self.status_label.config(text=f"Geselecteerd: {len(tab.selected_text)} tekens")
         else:
             self.status_label.config(text="Geen tekst geselecteerd")
+
+        # Breng annotaties en form highlights terug naar de voorgrond
+        tab.canvas.tag_raise("form_highlight")
+        tab.canvas.tag_raise("form_values")
+        tab.canvas.tag_raise("text_annotation")
+        tab.canvas.tag_raise("form_overlay")
+        tab.canvas.tag_raise("text_annotation_editor")
 
         tab.drag_start = None
 
@@ -2444,46 +2572,70 @@ class NVictReader:
         Image, ImageTk, ImageOps, ImageDraw = get_PIL()  # Lazy load PIL
         found = False
         start_page = tab.current_page
-        
+
         for offset in range(len(tab.pdf_document)):
             page_num = (start_page + offset) % len(tab.pdf_document)
             page = tab.pdf_document[page_num]
             instances = page.search_for(search_text)
-            
+
             if instances:
                 if page_num != tab.current_page:
                     tab.current_page = page_num
                     self.display_page(tab)
-                
+
+                # Gebruik page_pil_images (multi-page) of current_image als fallback
+                pil_images = getattr(tab, 'page_pil_images', {})
+                source_image = pil_images.get(page_num) or getattr(tab, 'current_image', None)
+                if source_image is None:
+                    # Render pagina on-the-fly als er geen afbeelding beschikbaar is
+                    mat = fitz.Matrix(tab.zoom_level, tab.zoom_level)
+                    pix = page.get_pixmap(matrix=mat)
+                    source_image = Image.open(io.BytesIO(pix.tobytes("ppm")))
+
                 # Highlight op de afbeelding
-                highlighted = tab.current_image.copy()
+                highlighted = source_image.copy()
                 draw = ImageDraw.Draw(highlighted, 'RGBA')
-                
+
                 for inst in instances:
                     rect = fitz.Rect(inst)
                     x0 = rect.x0 * tab.zoom_level
                     y0 = rect.y0 * tab.zoom_level
                     x1 = rect.x1 * tab.zoom_level
                     y1 = rect.y1 * tab.zoom_level
-                    
+
                     draw.rectangle(
                         [x0, y0, x1, y1],
                         outline=(255, 140, 0, 255),  # Oranje
                         width=3
                     )
-                
+
                 photo = ImageTk.PhotoImage(highlighted)
                 tab.highlighted_image = photo
-                tab.canvas.delete("page_image")
-                tab.canvas.create_image(tab.page_offset_x, tab.page_offset_y,
-                                       anchor="nw", image=photo, tags="page_image")
-                
+
+                # Gebruik page_regions voor correcte positie, of fallback
+                regions = getattr(tab, 'page_regions', {})
+                if page_num in regions:
+                    px, py = regions[page_num][0], regions[page_num][1]
+                else:
+                    px = getattr(tab, 'page_offset_x', 0)
+                    py = getattr(tab, 'page_offset_y', 0)
+
+                tab.canvas.delete(f"page_{page_num}")
+                tab.canvas.create_image(px, py, anchor="nw",
+                                        image=photo, tags=f"page_{page_num}")
+
+                # Breng overlays terug naar voorgrond
+                tab.canvas.tag_raise("form_highlight")
+                tab.canvas.tag_raise("form_values")
+                tab.canvas.tag_raise("text_annotation")
+                tab.canvas.tag_raise("form_overlay")
+
                 found = True
                 self.status_label.config(
                     text=f"Gevonden: '{search_text}' ({len(instances)}x op pagina {page_num + 1})"
                 )
                 break
-        
+
         if not found:
             messagebox.showinfo("Zoeken", f"'{search_text}' niet gevonden in document")
 
@@ -3322,6 +3474,863 @@ class NVictReader:
             
         except Exception as e:
             messagebox.showerror("Fout", f"Kan PDF niet splitsen:\n{str(e)}")
+
+    def _build_modified_pdf(self, tab):
+        """Maak een tijdelijk PDF-bestand met alle wijzigingen (annotaties, markeringen, formuliervelden).
+        Retourneert het pad naar het tijdelijke bestand, of None als er geen wijzigingen zijn."""
+        # Verzamel waarden uit actieve form widgets
+        if tab.form_widgets:
+            self._save_form_widget_values(tab)
+
+        has_changes = (
+            bool(tab.form_field_values)
+            or bool(tab.text_annotations)
+            or bool(getattr(tab, 'highlight_annotations', []))
+        )
+        if not has_changes:
+            return None
+
+        try:
+            fitz = get_fitz()
+            import tempfile
+            doc = fitz.open(tab.file_path)
+
+            # 1. Formuliervelden invullen
+            if tab.form_field_values:
+                for page_num in range(len(doc)):
+                    page = doc[page_num]
+                    for widget in page.widgets():
+                        if widget is None:
+                            continue
+                        xref = widget.xref
+                        if xref in tab.form_field_values:
+                            val = tab.form_field_values[xref]
+                            if widget.field_type in (2, 5):  # Checkbox / Radio
+                                widget.field_value = bool(val)
+                            else:
+                                widget.field_value = str(val) if val else ""
+                            widget.update()
+
+            # 2. Tekst-annotaties toevoegen
+            color_map = {
+                "black": (0, 0, 0), "red": (1, 0, 0),
+                "#0066CC": (0, 0.4, 0.8), "blue": (0, 0, 1),
+                "darkgreen": (0, 0.4, 0),
+            }
+            for annot in tab.text_annotations:
+                page = doc[annot["page_num"]]
+                pdf_x = annot["pdf_x"]
+                pdf_y = annot["pdf_y"]
+                text = annot["text"]
+                font_size = annot["font_size"]
+                color = color_map.get(annot.get("color", "black"), (0, 0, 0))
+
+                lines = text.split("\n")
+                max_line_len = max(len(line) for line in lines) if lines else 10
+                approx_width = max_line_len * font_size * 0.55
+                approx_height = len(lines) * font_size * 1.4
+
+                rect = fitz.Rect(pdf_x, pdf_y,
+                                 pdf_x + approx_width + 10,
+                                 pdf_y + approx_height + 5)
+                annot_obj = page.add_freetext_annot(
+                    rect, text,
+                    fontsize=font_size, fontname="helv",
+                    text_color=color, fill_color=(1, 1, 1),
+                )
+                annot_obj.update()
+
+            # 3. Highlight-markeringen toevoegen
+            if hasattr(tab, 'highlight_annotations'):
+                for ha in tab.highlight_annotations:
+                    page = doc[ha["page_num"]]
+                    quads = ha.get("quads", [])
+                    if quads:
+                        annot_obj = page.add_highlight_annot(quads=quads)
+                        annot_obj.update()
+
+            # Sla op in tijdelijk bestand
+            base_name = os.path.splitext(os.path.basename(tab.file_path))[0]
+            tmp = tempfile.NamedTemporaryFile(
+                suffix=".pdf", prefix=f"{base_name}_bewerkt_", delete=False
+            )
+            tmp_path = tmp.name
+            tmp.close()
+            doc.save(tmp_path)
+            doc.close()
+            return tmp_path
+        except Exception as e:
+            print(f"Error building modified PDF: {e}")
+            return None
+
+    def send_pdf(self):
+        """Verstuur/deel de actieve PDF via e-mail (Outlook of standaard mailprogramma)"""
+        tab = self.get_active_tab()
+        if not isinstance(tab, PDFTab):
+            messagebox.showinfo("Doorsturen", "Geen PDF geopend om door te sturen.")
+            return
+
+        # Bouw een gewijzigde PDF als er aanpassingen zijn, anders gebruik origineel
+        modified_path = self._build_modified_pdf(tab)
+        pdf_path = modified_path if modified_path else tab.file_path
+        filename = os.path.basename(pdf_path)
+
+        # Probeer eerst via Outlook COM object (Windows)
+        try:
+            import win32com.client
+            outlook = win32com.client.Dispatch("Outlook.Application")
+            mail = outlook.CreateItem(0)  # 0 = olMailItem
+            mail.Subject = f"PDF: {os.path.basename(tab.file_path)}"
+            mail.Body = f"Hierbij stuur ik de PDF '{os.path.basename(tab.file_path)}' door."
+            mail.Attachments.Add(pdf_path)
+            mail.Display(True)
+            return
+        except ImportError:
+            pass
+        except Exception:
+            pass
+
+        # Fallback: open standaard mailprogramma via mailto: link
+        try:
+            import urllib.parse
+            subject = urllib.parse.quote(f"PDF: {os.path.basename(tab.file_path)}")
+            body = urllib.parse.quote(f"Hierbij stuur ik de PDF '{os.path.basename(tab.file_path)}' door.")
+            mailto = f"mailto:?subject={subject}&body={body}"
+            import webbrowser
+            webbrowser.open(mailto)
+
+            # Kopieer bestandspad naar klembord als handige hint
+            self.root.clipboard_clear()
+            self.root.clipboard_append(pdf_path)
+            messagebox.showinfo(
+                "Doorsturen",
+                f"Je standaard e-mailprogramma is geopend.\n\n"
+                f"Het bestandspad is gekopieerd naar het klembord:\n{pdf_path}\n\n"
+                f"Voeg het bestand handmatig toe als bijlage."
+            )
+        except Exception as e:
+            messagebox.showerror("Fout", f"Kan e-mailprogramma niet openen:\n{str(e)}")
+
+    # ─── Opslaan (formuliervelden + annotaties) ─────────────────────────
+
+    def _has_unsaved_changes(self):
+        """Controleer of de actieve tab onopgeslagen wijzigingen heeft"""
+        tab = self.get_active_tab()
+        if not isinstance(tab, PDFTab):
+            return False
+        # Formuliervelden ingevuld?
+        if tab.form_widgets:
+            self._save_form_widget_values(tab)
+        if tab.form_field_values:
+            return True
+        # Tekst-annotaties geplaatst?
+        if tab.text_annotations:
+            return True
+        # Markeringen (highlight annotaties)?
+        if hasattr(tab, 'highlight_annotations') and tab.highlight_annotations:
+            return True
+        return False
+
+    def _update_save_button_state(self):
+        """Update de opslaan-knop: actief als er wijzigingen zijn, anders uitgegreyed"""
+        try:
+            if self._has_unsaved_changes():
+                self.save_btn.config(state=tk.NORMAL)
+            else:
+                self.save_btn.config(state=tk.DISABLED)
+        except (tk.TclError, Exception):
+            pass
+
+    def save_changes_to_pdf(self):
+        """Sla alle wijzigingen (formuliervelden + annotaties + markeringen) op als nieuw PDF"""
+        tab = self.get_active_tab()
+        if not isinstance(tab, PDFTab):
+            return
+
+        if not self._has_unsaved_changes():
+            return  # Niets op te slaan, knop zou disabled moeten zijn
+
+        original = tab.file_path
+        base, ext = os.path.splitext(original)
+        suggested = f"{base}_bewerkt{ext}"
+        save_path = filedialog.asksaveasfilename(
+            title="Gewijzigde PDF opslaan als",
+            initialfile=os.path.basename(suggested),
+            initialdir=os.path.dirname(original),
+            defaultextension=".pdf",
+            filetypes=[("PDF bestanden", "*.pdf"), ("Alle bestanden", "*.*")]
+        )
+        if not save_path:
+            return
+
+        try:
+            tmp_path = self._build_modified_pdf(tab)
+            if tmp_path:
+                import shutil
+                shutil.move(tmp_path, save_path)
+            else:
+                # Geen wijzigingen gevonden, kopieer origineel
+                import shutil
+                shutil.copy2(original, save_path)
+
+            # Wis de wijzigingen na succesvol opslaan
+            tab.form_field_values = {}
+            tab.text_annotations = []
+            if hasattr(tab, 'highlight_annotations'):
+                tab.highlight_annotations = []
+
+            self._update_save_button_state()
+            messagebox.showinfo("Opgeslagen",
+                               f"PDF opgeslagen als:\n{os.path.basename(save_path)}")
+
+        except Exception as e:
+            messagebox.showerror("Fout", f"Kan PDF niet opslaan:\n{str(e)}")
+
+    # ─── Formulier invulvelden ───────────────────────────────────────────
+
+    def toggle_form_mode(self):
+        """Schakel formuliermodus in/uit voor de actieve tab"""
+        tab = self.get_active_tab()
+        if not isinstance(tab, PDFTab):
+            messagebox.showinfo("Formulier", "Geen PDF geopend.")
+            return
+
+        tab.form_mode = not tab.form_mode
+
+        if tab.form_mode:
+            # Controleer of er formuliervelden bestaan
+            has_fields = False
+            for page_num in range(len(tab.pdf_document)):
+                page = tab.pdf_document[page_num]
+                widgets = page.widgets()
+                if widgets:
+                    for w in widgets:
+                        has_fields = True
+                        break
+                if has_fields:
+                    break
+
+            if not has_fields:
+                tab.form_mode = False
+                messagebox.showinfo("Formulier", "Deze PDF bevat geen invulbare formuliervelden.")
+                return
+
+            # Deactiveer conflicterende modi
+            if tab.text_annotate_mode:
+                tab.text_annotate_mode = False
+                tab.canvas.unbind("<Button-1>")
+                tab.canvas.bind("<Button-1>", lambda e, t=tab: self.on_click(e, t))
+                tab.canvas.config(cursor="arrow")
+                self._set_toolbar_button_active("type-text", False)
+            if self.highlight_mode:
+                self.highlight_mode = False
+                self._set_toolbar_button_active("marker", False)
+
+            self._create_form_overlays(tab)
+            self._set_toolbar_button_active("form", True)
+        else:
+            self._save_form_widget_values(tab)
+            self._clear_form_overlays(tab)
+            # Herteken pagina om ingevulde waarden als tekst te tonen
+            self.display_page(tab)
+            self._update_save_button_state()
+            self._set_toolbar_button_active("form", False)
+
+    def _draw_form_field_highlights(self, tab):
+        """Teken lichtblauwe markeringen op formulierveld-posities (altijd zichtbaar)"""
+        tab.canvas.delete("form_highlight")  # Verwijder oude markeringen
+        tab.canvas.delete("form_values")     # Verwijder oude waarde-teksten
+        zoom = tab.zoom_level
+        doc = tab.pdf_document
+        has_fields = False
+
+        for page_num in range(len(doc)):
+            page = doc[page_num]
+            if page_num not in tab.page_regions:
+                continue
+            px0, py0, px1, py1 = tab.page_regions[page_num]
+
+            for widget in page.widgets():
+                if widget is None:
+                    continue
+                has_fields = True
+                rect = widget.rect
+                cx0 = rect.x0 * zoom + px0
+                cy0 = rect.y0 * zoom + py0
+                cx1 = rect.x1 * zoom + px0
+                cy1 = rect.y1 * zoom + py0
+
+                # Lichtblauwe achtergrond (semi-transparant effect via stipple)
+                tab.canvas.create_rectangle(
+                    cx0, cy0, cx1, cy1,
+                    fill="#D0E8FF", outline="#80B8FF", width=1,
+                    stipple="gray50",
+                    tags="form_highlight"
+                )
+
+                # Toon opgeslagen waarden als tekst als formuliermodus UIT is
+                if not tab.form_mode and widget.xref in tab.form_field_values:
+                    val = tab.form_field_values[widget.xref]
+                    display_val = ""
+                    if widget.field_type in (2, 5):  # Checkbox / Radio
+                        display_val = "☑" if val else "☐"
+                    else:
+                        display_val = str(val) if val else ""
+
+                    if display_val:
+                        font_size = max(int(9 * zoom), 7)
+                        tab.canvas.create_text(
+                            cx0 + 3, cy0 + 2, anchor="nw",
+                            text=display_val,
+                            font=("Segoe UI", font_size),
+                            fill="#0055AA",
+                            tags="form_values"
+                        )
+
+        # Klik op een gemarkeerd veld → activeer formuliermodus automatisch
+        if has_fields and not tab.form_mode:
+            tab.canvas.tag_bind("form_highlight", "<Button-1>",
+                               lambda e: self._activate_form_mode_from_click(tab))
+
+    def _activate_form_mode_from_click(self, tab):
+        """Activeer formuliermodus wanneer op een blauw gemarkeerd veld wordt geklikt"""
+        if not tab.form_mode:
+            tab.form_mode = True
+            self._create_form_overlays(tab)
+            # Verberg de blauwe markeringen en waarde-teksten (overlays zitten er nu overheen)
+            tab.canvas.delete("form_highlight")
+            tab.canvas.delete("form_values")
+            try:
+                btn_widget = self.toolbar_buttons.get("form", (None,))[0]
+                if btn_widget:
+                    btn_widget.config(bg=self.theme["ACCENT_COLOR"], fg="white")
+            except:
+                pass
+
+    def _create_form_overlays(self, tab):
+        """Maak Tkinter widgets als overlay op de formuliervelden"""
+        self._clear_form_overlays(tab)
+
+        zoom = tab.zoom_level
+        doc = tab.pdf_document
+
+        for page_num in range(len(doc)):
+            page = doc[page_num]
+
+            # Haal canvas offset voor deze pagina op
+            if page_num not in tab.page_regions:
+                continue
+            px0, py0, px1, py1 = tab.page_regions[page_num]
+
+            for widget in page.widgets():
+                if widget is None:
+                    continue
+
+                field_type = widget.field_type
+                field_name = widget.field_name or ""
+                field_xref = widget.xref
+                rect = widget.rect  # fitz.Rect in PDF-coordinates
+
+                # Bereken positie op canvas
+                cx = rect.x0 * zoom + px0
+                cy = rect.y0 * zoom + py0
+                cw = max((rect.x1 - rect.x0) * zoom, 30)
+                ch = max((rect.y1 - rect.y0) * zoom, 20)
+
+                # Gebruik eerder opgeslagen waarde of huidige PDF-waarde
+                current_value = tab.form_field_values.get(field_xref,
+                                widget.field_value or "")
+
+                tk_widget = None
+                var = None
+
+                # ── Tekstveld (type 7 = Text) ──
+                if field_type == 7:  # PDF_WIDGET_TYPE_TEXT
+                    is_multiline = bool(widget.field_flags & 4096) or ch > 30 * zoom
+                    if is_multiline:
+                        txt = tk.Text(tab.canvas, font=("Segoe UI", max(int(9 * zoom), 7)),
+                                      bg="white", fg="black", relief="solid", bd=1,
+                                      highlightcolor=self.theme["ACCENT_COLOR"],
+                                      highlightthickness=1, wrap=tk.WORD, undo=True)
+                        if current_value:
+                            txt.insert("1.0", str(current_value))
+                        tk_widget = txt
+                    else:
+                        entry = tk.Entry(tab.canvas, font=("Segoe UI", max(int(9 * zoom), 7)),
+                                         bg="white", fg="black", relief="solid", bd=1,
+                                         highlightcolor=self.theme["ACCENT_COLOR"],
+                                         highlightthickness=1)
+                        if current_value:
+                            entry.insert(0, str(current_value))
+                        tk_widget = entry
+
+                # ── Checkbox (type 2 = CheckBox) ──
+                elif field_type == 2:  # PDF_WIDGET_TYPE_CHECKBOX
+                    var = tk.BooleanVar(value=current_value in ("Yes", "On", True, "true", "/Yes"))
+                    cb = tk.Checkbutton(tab.canvas, variable=var,
+                                       bg="white", activebackground="white",
+                                       highlightthickness=0, bd=1, relief="solid")
+                    tk_widget = cb
+
+                # ── Radio button (type 5 = RadioButton) ──
+                elif field_type == 5:  # PDF_WIDGET_TYPE_RADIOBUTTON
+                    var = tk.BooleanVar(value=current_value in ("Yes", "On", True, "true", "/Yes"))
+                    rb = tk.Checkbutton(tab.canvas, variable=var,
+                                       bg="white", activebackground="white",
+                                       indicatoron=True, selectcolor="white",
+                                       highlightthickness=0, bd=1, relief="solid")
+                    tk_widget = rb
+
+                # ── Keuzelijst / Dropdown (type 3 = Choice / Listbox, type 4 = ComboBox) ──
+                elif field_type in (3, 4):  # PDF_WIDGET_TYPE_LISTBOX / COMBOBOX
+                    choices = widget.choice_values or []
+                    combo = ttk.Combobox(tab.canvas, values=choices,
+                                        font=("Segoe UI", max(int(9 * zoom), 7)),
+                                        state="readonly" if choices else "normal")
+                    if current_value and current_value in choices:
+                        combo.set(current_value)
+                    elif current_value:
+                        combo.set(str(current_value))
+                    tk_widget = combo
+
+                # ── Onbekend type → tekstveld als fallback ──
+                else:
+                    entry = tk.Entry(tab.canvas, font=("Segoe UI", max(int(9 * zoom), 7)),
+                                     bg="#FFFFDD", fg="black", relief="solid", bd=1)
+                    if current_value:
+                        entry.insert(0, str(current_value))
+                    tk_widget = entry
+
+                if tk_widget:
+                    # Plaats widget op canvas
+                    win_id = tab.canvas.create_window(
+                        cx, cy, anchor="nw",
+                        window=tk_widget,
+                        width=int(cw), height=int(ch),
+                        tags="form_overlay"
+                    )
+                    tab.form_widgets.append({
+                        "win_id": win_id,
+                        "widget": tk_widget,
+                        "var": var,
+                        "field_xref": field_xref,
+                        "field_name": field_name,
+                        "field_type": field_type,
+                        "page_num": page_num,
+                    })
+
+    def _clear_form_overlays(self, tab):
+        """Verwijder alle formulier overlay widgets"""
+        for fw in tab.form_widgets:
+            try:
+                tab.canvas.delete(fw["win_id"])
+                fw["widget"].destroy()
+            except:
+                pass
+        tab.form_widgets = []
+
+    def _save_form_widget_values(self, tab):
+        """Sla de huidige waarden van de overlay widgets op in tab.form_field_values"""
+        for fw in tab.form_widgets:
+            xref = fw["field_xref"]
+            ftype = fw["field_type"]
+            var = fw["var"]
+            widget = fw["widget"]
+
+            try:
+                if ftype == 2 or ftype == 5:  # Checkbox / Radio
+                    tab.form_field_values[xref] = var.get()
+                elif ftype in (3, 4):  # Combobox
+                    tab.form_field_values[xref] = widget.get()
+                elif isinstance(widget, tk.Text):  # Multiline tekstveld
+                    tab.form_field_values[xref] = widget.get("1.0", "end-1c")
+                else:  # Enkel-regel tekstveld
+                    tab.form_field_values[xref] = widget.get()
+            except:
+                pass
+
+    def save_form_to_pdf(self):
+        """Sla de ingevulde formuliervelden op in een nieuw PDF-bestand"""
+        tab = self.get_active_tab()
+        if not isinstance(tab, PDFTab):
+            return
+
+        # Eerst waarden ophalen uit widgets als die nog bestaan
+        if tab.form_widgets:
+            self._save_form_widget_values(tab)
+
+        if not tab.form_field_values:
+            messagebox.showinfo("Formulier opslaan", "Geen ingevulde velden om op te slaan.")
+            return
+
+        # Vraag bestandsnaam
+        original = tab.file_path
+        base, ext = os.path.splitext(original)
+        suggested = f"{base}_ingevuld{ext}"
+        save_path = filedialog.asksaveasfilename(
+            title="Formulier opslaan als",
+            initialfile=os.path.basename(suggested),
+            initialdir=os.path.dirname(original),
+            defaultextension=".pdf",
+            filetypes=[("PDF bestanden", "*.pdf"), ("Alle bestanden", "*.*")]
+        )
+        if not save_path:
+            return
+
+        try:
+            fitz = get_fitz()
+            # Open een verse kopie om te bewerken
+            doc = fitz.open(original)
+
+            for page_num in range(len(doc)):
+                page = doc[page_num]
+                for widget in page.widgets():
+                    if widget is None:
+                        continue
+                    xref = widget.xref
+                    if xref in tab.form_field_values:
+                        val = tab.form_field_values[xref]
+                        ftype = widget.field_type
+
+                        if ftype in (2, 5):  # Checkbox / Radio
+                            widget.field_value = bool(val)
+                        else:  # Tekst / Combo / List
+                            widget.field_value = str(val) if val else ""
+
+                        widget.update()
+
+            doc.save(save_path)
+            doc.close()
+
+            messagebox.showinfo("Formulier opgeslagen",
+                               f"Het ingevulde formulier is opgeslagen als:\n{save_path}")
+
+        except Exception as e:
+            messagebox.showerror("Fout", f"Kan formulier niet opslaan:\n{str(e)}")
+
+    # ─── Vrije tekst annotaties ──────────────────────────────────────────
+
+    def toggle_text_annotate_mode(self):
+        """Schakel tekst-annotatiemodus in/uit"""
+        tab = self.get_active_tab()
+        if not isinstance(tab, PDFTab):
+            messagebox.showinfo("Tekst toevoegen", "Geen PDF geopend.")
+            return
+
+        tab.text_annotate_mode = not tab.text_annotate_mode
+
+        if tab.text_annotate_mode:
+            # Formuliermodus uitzetten als die actief is
+            if tab.form_mode:
+                tab.form_mode = False
+                self._save_form_widget_values(tab)
+                self._clear_form_overlays(tab)
+                self._set_toolbar_button_active("form", False)
+
+            # Markeermodus uitzetten als die actief is
+            if self.highlight_mode:
+                self.highlight_mode = False
+                self._set_toolbar_button_active("marker", False)
+
+            # Bind klik-event op canvas (enkelklik)
+            tab.canvas.bind("<Button-1>", self._on_text_annotate_click)
+            tab.canvas.config(cursor="crosshair")
+
+            self._set_toolbar_button_active("type-text", True)
+
+            try:
+                self.status_label.config(text="Tekst-modus: klik op de PDF om tekst te plaatsen")
+            except:
+                pass
+        else:
+            tab.canvas.unbind("<Button-1>")
+            # Herstel de standaard klik-handler
+            tab.canvas.bind("<Button-1>", lambda e, t=tab: self.on_click(e, t))
+            tab.canvas.config(cursor="arrow")
+
+            self._set_toolbar_button_active("type-text", False)
+
+            try:
+                self.status_label.config(text="Gereed")
+            except:
+                pass
+
+    def _on_text_annotate_click(self, event):
+        """Verwerk klik op canvas voor tekst-annotatie plaatsing"""
+        tab = self.get_active_tab()
+        if not isinstance(tab, PDFTab) or not tab.text_annotate_mode:
+            return
+
+        # Sluit bestaande editor(s) — slechts één tegelijk
+        for w_info in list(tab.text_annot_widgets):
+            try:
+                tab.canvas.delete(w_info["win_id"])
+                w_info["frame"].destroy()
+            except Exception:
+                pass
+        tab.text_annot_widgets.clear()
+
+        # Canvas-coördinaten (rekening houdend met scroll)
+        cx = tab.canvas.canvasx(event.x)
+        cy = tab.canvas.canvasy(event.y)
+
+        # Bepaal op welke pagina geklikt is
+        target_page = None
+        for page_num, (px0, py0, px1, py1) in tab.page_regions.items():
+            if px0 <= cx <= px1 and py0 <= cy <= py1:
+                target_page = page_num
+                break
+
+        if target_page is None:
+            return
+
+        px0, py0, _, _ = tab.page_regions[target_page]
+        zoom = tab.zoom_level
+
+        # ── Laad iconen voor knoppen (verkleind naar 20x20) ──
+        Image, ImageTk, _, _ = get_PIL()
+        check_icon = None
+        close_icon = None
+        try:
+            check_path = get_resource_path(os.path.join('icons', 'check.png'))
+            close_path = get_resource_path(os.path.join('icons', 'close.png'))
+            if os.path.exists(check_path):
+                check_img = Image.open(check_path).resize((20, 20), Image.LANCZOS)
+                check_icon = ImageTk.PhotoImage(check_img)
+            if os.path.exists(close_path):
+                close_img = Image.open(close_path).convert('RGBA').resize((20, 20), Image.LANCZOS)
+                # Inverteer icoon in donker thema
+                if self.theme == Theme.DARK:
+                    from PIL import ImageOps
+                    r, g, b, a = close_img.split()
+                    inv = ImageOps.invert(Image.merge('RGB', (r, g, b)))
+                    close_img = Image.merge('RGBA', (*inv.split(), a))
+                close_icon = ImageTk.PhotoImage(close_img)
+        except:
+            pass
+
+        # ── Hoofdframe voor de editor ──
+        is_dark = self.theme == Theme.DARK
+        editor_bg = self.theme["BG_PRIMARY"]
+        editor_fg = self.theme["TEXT_PRIMARY"]
+        toolbar_bg = self.theme["BG_SECONDARY"]
+
+        annot_frame = tk.Frame(tab.canvas, bg=editor_bg, bd=0, relief="flat",
+                              highlightbackground=self.theme["ACCENT_COLOR"],
+                              highlightthickness=2)
+
+        # ── Toolbar BOVENIN met opties ──
+        toolbar = tk.Frame(annot_frame, bg=toolbar_bg, height=36)
+        toolbar.pack(fill=tk.X, side=tk.TOP)
+        toolbar.pack_propagate(False)
+
+        # Lettergrootte
+        size_var = tk.IntVar(value=11)
+        tk.Label(toolbar, text="Grootte:", font=("Segoe UI", 9, "bold"),
+                bg=toolbar_bg, fg=self.theme["TEXT_PRIMARY"]).pack(side=tk.LEFT, padx=(6, 2))
+        size_spin = tk.Spinbox(toolbar, from_=6, to=36, width=3, textvariable=size_var,
+                              font=("Segoe UI", 10),
+                              bg=self.theme["BG_PRIMARY"], fg=self.theme["TEXT_PRIMARY"],
+                              buttonbackground=toolbar_bg)
+        size_spin.pack(side=tk.LEFT, padx=(0, 8))
+
+        # Kleurkeuze met gekleurde knoppen — gebruik leesbare kleuren in donker thema
+        color_var = tk.StringVar(value="black")
+        if is_dark:
+            colors = [("Zwart", "black", "#cccccc"), ("Rood", "red", "#ff6666"),
+                      ("Blauw", "#0066CC", "#66aaff"), ("Groen", "darkgreen", "#66cc66")]
+        else:
+            colors = [("Zwart", "black", "black"), ("Rood", "red", "red"),
+                      ("Blauw", "#0066CC", "#0066CC"), ("Groen", "darkgreen", "darkgreen")]
+        for label, color, display_color in colors:
+            rb = tk.Radiobutton(toolbar, text=f"  {label}  ", variable=color_var, value=color,
+                               font=("Segoe UI", 9, "bold"),
+                               bg=toolbar_bg,
+                               fg=display_color, selectcolor=toolbar_bg,
+                               activebackground=toolbar_bg,
+                               activeforeground=display_color,
+                               indicatoron=False, relief="flat",
+                               overrelief="groove", cursor="hand2")
+            rb.pack(side=tk.LEFT, padx=1)
+
+        # Akkoord/Annuleer knoppen RECHTS in toolbar
+        def save_annotation():
+            text_content = txt.get("1.0", "end-1c").strip()
+            if text_content:
+                pdf_x = (cx - px0) / zoom
+                pdf_y = (cy - py0) / zoom
+                font_size = size_var.get()
+                text_color = color_var.get()
+
+                tab.text_annotations.append({
+                    "page_num": target_page,
+                    "pdf_x": pdf_x,
+                    "pdf_y": pdf_y,
+                    "text": text_content,
+                    "font_size": font_size,
+                    "color": text_color,
+                })
+            tab.canvas.delete(win_id)
+            annot_frame.destroy()
+            tab.text_annot_widgets = [w for w in tab.text_annot_widgets if w["win_id"] != win_id]
+            self.display_page(tab)
+            self._update_save_button_state()
+
+        def cancel_annotation():
+            tab.canvas.delete(win_id)
+            annot_frame.destroy()
+            tab.text_annot_widgets = [w for w in tab.text_annot_widgets if w["win_id"] != win_id]
+
+        # Akkoord knop met check.png icoon
+        save_btn = tk.Button(toolbar, command=save_annotation,
+                            bg=self.theme["ACCENT_COLOR"], fg="white",
+                            relief="flat", cursor="hand2", padx=6, pady=2)
+        if check_icon:
+            save_btn.config(image=check_icon, text=" OK", compound=tk.LEFT)
+            save_btn._icon = check_icon  # Voorkom garbage collection
+        else:
+            save_btn.config(text="OK", font=("Segoe UI", 9, "bold"))
+        save_btn.pack(side=tk.RIGHT, padx=(2, 6), pady=4)
+
+        # Annuleer knop met close.png icoon
+        cancel_btn = tk.Button(toolbar, command=cancel_annotation,
+                              bg=self.theme["BG_PRIMARY"], fg=self.theme["TEXT_PRIMARY"],
+                              relief="flat", cursor="hand2", padx=6, pady=2)
+        if close_icon:
+            cancel_btn.config(image=close_icon)
+            cancel_btn._icon = close_icon  # Voorkom garbage collection
+        else:
+            cancel_btn.config(text="✕", font=("Segoe UI", 9))
+        cancel_btn.pack(side=tk.RIGHT, padx=2, pady=4)
+
+        # ── Tekstveld ONDER de toolbar ──
+        txt = tk.Text(annot_frame, font=("Segoe UI", max(int(10 * zoom), 9)),
+                      bg=editor_bg, fg=editor_fg, wrap=tk.WORD, undo=True,
+                      insertbackground=editor_fg,
+                      bd=0, highlightthickness=0, padx=6, pady=4)
+        txt.pack(fill=tk.BOTH, expand=True)
+
+        # ── Positie berekenen: binnen zichtbaar venster houden ──
+        editor_w = max(int(320 * zoom), 280)
+        editor_h = max(int(140 * zoom), 130)
+
+        # Zichtbare canvas-area
+        vis_x0 = tab.canvas.canvasx(0)
+        vis_y0 = tab.canvas.canvasy(0)
+        vis_x1 = vis_x0 + tab.canvas.winfo_width()
+        vis_y1 = vis_y0 + tab.canvas.winfo_height()
+
+        # Corrigeer positie als editor buiten beeld zou vallen
+        place_x = cx
+        place_y = cy
+        if place_x + editor_w > vis_x1 - 10:
+            place_x = max(vis_x0 + 10, vis_x1 - editor_w - 10)
+        if place_y + editor_h > vis_y1 - 10:
+            place_y = max(vis_y0 + 10, vis_y1 - editor_h - 10)
+
+        win_id = tab.canvas.create_window(place_x, place_y, anchor="nw",
+                                          window=annot_frame,
+                                          width=editor_w, height=editor_h,
+                                          tags="text_annotation_editor")
+
+        tab.text_annot_widgets.append({"win_id": win_id, "frame": annot_frame})
+        txt.focus_set()
+
+    def _draw_text_annotations(self, tab):
+        """Teken opgeslagen tekst-annotaties op de canvas"""
+        tab.canvas.delete("text_annotation")
+        zoom = tab.zoom_level
+
+        for annot in tab.text_annotations:
+            page_num = annot["page_num"]
+            if page_num not in tab.page_regions:
+                continue
+
+            px0, py0, _, _ = tab.page_regions[page_num]
+            cx = annot["pdf_x"] * zoom + px0
+            cy = annot["pdf_y"] * zoom + py0
+            font_size = max(int(annot["font_size"] * zoom), 7)
+            color = annot.get("color", "black")
+
+            tab.canvas.create_text(
+                cx, cy, anchor="nw",
+                text=annot["text"],
+                font=("Segoe UI", font_size),
+                fill=color,
+                tags="text_annotation"
+            )
+
+    def save_annotations_to_pdf(self):
+        """Sla alle tekst-annotaties op in een nieuw PDF-bestand"""
+        tab = self.get_active_tab()
+        if not isinstance(tab, PDFTab):
+            return
+
+        if not tab.text_annotations:
+            messagebox.showinfo("Annotaties opslaan", "Geen tekst-annotaties om op te slaan.")
+            return
+
+        original = tab.file_path
+        base, ext = os.path.splitext(original)
+        suggested = f"{base}_annotaties{ext}"
+        save_path = filedialog.asksaveasfilename(
+            title="PDF met annotaties opslaan als",
+            initialfile=os.path.basename(suggested),
+            initialdir=os.path.dirname(original),
+            defaultextension=".pdf",
+            filetypes=[("PDF bestanden", "*.pdf"), ("Alle bestanden", "*.*")]
+        )
+        if not save_path:
+            return
+
+        try:
+            fitz = get_fitz()
+            doc = fitz.open(original)
+
+            # Kleur-mapping naar RGB tuples (0-1 bereik)
+            color_map = {
+                "black": (0, 0, 0),
+                "red": (1, 0, 0),
+                "blue": (0, 0, 1),
+                "darkgreen": (0, 0.4, 0),
+            }
+
+            for annot in tab.text_annotations:
+                page = doc[annot["page_num"]]
+                pdf_x = annot["pdf_x"]
+                pdf_y = annot["pdf_y"]
+                text = annot["text"]
+                font_size = annot["font_size"]
+                color = color_map.get(annot.get("color", "black"), (0, 0, 0))
+
+                # Bereken tekst breedte/hoogte voor de rect
+                lines = text.split("\n")
+                max_line_len = max(len(line) for line in lines) if lines else 10
+                approx_width = max_line_len * font_size * 0.55
+                approx_height = len(lines) * font_size * 1.4
+
+                rect = fitz.Rect(pdf_x, pdf_y,
+                                pdf_x + approx_width + 10,
+                                pdf_y + approx_height + 5)
+
+                annot_obj = page.add_freetext_annot(
+                    rect, text,
+                    fontsize=font_size,
+                    fontname="helv",
+                    text_color=color,
+                    fill_color=(1, 1, 1),  # Witte achtergrond
+                    border_color=None,
+                )
+                annot_obj.update()
+
+            doc.save(save_path)
+            doc.close()
+
+            messagebox.showinfo("Annotaties opgeslagen",
+                               f"PDF met annotaties opgeslagen als:\n{save_path}")
+        except Exception as e:
+            messagebox.showerror("Fout", f"Kan annotaties niet opslaan:\n{str(e)}")
+
     def show_pdf_info(self):
         tab = self.get_active_tab()
         if isinstance(tab, PDFTab):
@@ -3349,7 +4358,7 @@ class NVictReader:
         # Maak popup menu
         edit_menu = tk.Toplevel(self.root)
         edit_menu.title("PDF Bewerken")
-        edit_menu.geometry("400x450")
+        edit_menu.geometry("400x500")
         edit_menu.configure(bg=self.theme["BG_PRIMARY"])
         edit_menu.transient(self.root)
         edit_menu.grab_set()
@@ -3399,7 +4408,7 @@ class NVictReader:
                                               "Roteer geselecteerde pagina's 90° / 180° / 270°",
                                               lambda: [edit_menu.destroy(), self.rotate_pages()])
         rotate_frame.pack(fill=tk.X, pady=5)
-        
+
         # Footer met knop (moderne stijl)
         footer_frame = tk.Frame(edit_menu, bg=self.theme["BG_SECONDARY"], height=70)
         footer_frame.pack(fill=tk.X, side=tk.BOTTOM)
@@ -4143,14 +5152,25 @@ class NVictReader:
         def open_website():
             webbrowser.open("https://www.nvict.nl/software.html")
         
-        link_label = tk.Label(content_frame, text="www.nvict.nl", 
+        link_label = tk.Label(content_frame, text="www.nvict.nl",
                              font=("Segoe UI", 9, "underline"),
-                             bg=self.theme["BG_PRIMARY"], 
+                             bg=self.theme["BG_PRIMARY"],
                              fg=self.theme["ACCENT_COLOR"],
                              cursor="hand2")
-        link_label.pack(pady=15)
+        link_label.pack(pady=(15, 5))
         link_label.bind("<Button-1>", lambda e: open_website())
-        
+
+        # Iconen credit
+        icon_credit = tk.Label(content_frame,
+                              text="Iconen door Freepik - Flaticon",
+                              font=("Segoe UI", 8, "underline"),
+                              bg=self.theme["BG_PRIMARY"],
+                              fg=self.theme["TEXT_SECONDARY"],
+                              cursor="hand2")
+        icon_credit.pack(pady=(0, 10))
+        icon_credit.bind("<Button-1>", lambda e: webbrowser.open(
+            "https://www.flaticon.com/free-icons/page"))
+
         # Footer met knop (moderne stijl)
         footer_frame = tk.Frame(about, bg=self.theme["BG_SECONDARY"], height=70)
         footer_frame.pack(fill=tk.X, side=tk.BOTTOM)
@@ -4418,13 +5438,11 @@ class NVictReader:
         if self.thumbnail_visible:
             self.thumbnail_panel.grid_remove()
             self.thumbnail_visible = False
-            if hasattr(self, 'thumb_btn'):
-                self.thumb_btn.config(bg=self.theme["BG_SECONDARY"])
+            self._set_toolbar_button_active("pages", False)
         else:
             self.thumbnail_panel.grid()
             self.thumbnail_visible = True
-            if hasattr(self, 'thumb_btn'):
-                self.thumb_btn.config(bg=self.theme["ACCENT_COLOR"], fg="white")
+            self._set_toolbar_button_active("pages", True)
             self.update_thumbnails()
 
     def update_thumbnails(self):
@@ -4526,18 +5544,26 @@ class NVictReader:
         """Zet de markeermodus aan of uit."""
         self.highlight_mode = not self.highlight_mode
         if self.highlight_mode:
-            if hasattr(self, 'highlight_btn'):
-                self.highlight_btn.config(
-                    bg=self.theme["WARNING_COLOR"], fg="white"
-                )
+            # Deactiveer conflicterende modi
+            tab = self.get_active_tab()
+            if isinstance(tab, PDFTab) and tab.text_annotate_mode:
+                tab.text_annotate_mode = False
+                tab.canvas.unbind("<Button-1>")
+                tab.canvas.bind("<Button-1>", lambda e, t=tab: self.on_click(e, t))
+                tab.canvas.config(cursor="arrow")
+                self._set_toolbar_button_active("type-text", False)
+            if isinstance(tab, PDFTab) and tab.form_mode:
+                tab.form_mode = False
+                self._save_form_widget_values(tab)
+                self._clear_form_overlays(tab)
+                self.display_page(tab)
+                self._set_toolbar_button_active("form", False)
+            self._set_toolbar_button_active("marker", True)
             self.status_label.config(
                 text="✏ Markeermodus aan — sleep over tekst om te markeren"
             )
         else:
-            if hasattr(self, 'highlight_btn'):
-                self.highlight_btn.config(
-                    bg=self.theme["BG_SECONDARY"], fg=self.theme["TEXT_PRIMARY"]
-                )
+            self._set_toolbar_button_active("marker", False)
             self.status_label.config(text="Gereed")
 
     def apply_highlight_annotation(self, tab, selected_words):
@@ -4618,12 +5644,10 @@ class NVictReader:
             return
         tab.book_mode = not getattr(tab, 'book_mode', False)
         if tab.book_mode:
-            if hasattr(self, 'book_btn'):
-                self.book_btn.config(bg=self.theme["ACCENT_COLOR"], fg="white")
+            self._set_toolbar_button_active("book", True)
             self.status_label.config(text="Boek-modus aan")
         else:
-            if hasattr(self, 'book_btn'):
-                self.book_btn.config(bg=self.theme["BG_SECONDARY"], fg=self.theme["TEXT_PRIMARY"])
+            self._set_toolbar_button_active("book", False)
             self.status_label.config(text="Boek-modus uit")
         self.display_page(tab)
 
