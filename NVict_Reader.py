@@ -68,81 +68,54 @@ class DefaultPDFHandler:
     """Handles setting NVict Reader as default PDF viewer"""
     
     @staticmethod
-    def is_default_pdf_handler(): 
+    def is_default_pdf_handler():
         """Check if NVict Reader is currently the default PDF handler"""
         try:
-            # Haal de huidige executable path op
+            # Haal de huidige executable naam op
             if getattr(sys, 'frozen', False):
                 current_exe = sys.executable
             else:
                 current_exe = os.path.abspath(sys.argv[0])
-            
-            current_exe = current_exe.lower()
-            
+
+            current_exe_lower = current_exe.lower()
+            exe_name = os.path.basename(current_exe_lower)
+
             # Check UserChoice ProgId
             try:
                 key = winreg.OpenKey(
-                    winreg.HKEY_CURRENT_USER, 
+                    winreg.HKEY_CURRENT_USER,
                     r"Software\Microsoft\Windows\CurrentVersion\Explorer\FileExts\.pdf\UserChoice",
-                    0, 
+                    0,
                     winreg.KEY_READ
                 )
                 prog_id, _ = winreg.QueryValueEx(key, "ProgId")
                 winreg.CloseKey(key)
-                
-                # Check of het onze specifieke ProgID is
+
+                prog_id_lower = prog_id.lower()
+
+                # Directe match op onze ProgID
                 if prog_id == "NVictReader.PDF":
                     return True
-                
-                # Check ook voor Applications format (voor portable versie)
-                if "NVict Reader.exe" in prog_id or "NVictReader" in prog_id:
-                    # Extra verificatie: check of het command path overeenkomt
-                    try:
-                        # Probeer het command path op te halen van de ProgId
-                        if prog_id.startswith("Applications\\"):
-                            # Format: Applications\NVict Reader.exe
-                            return True  # Windows heeft ons als standaard via Applications
-                        
-                        # Check de ProgId in Classes
-                        cmd_key = winreg.OpenKey(
-                            winreg.HKEY_CURRENT_USER,
-                            f"Software\\Classes\\{prog_id}\\shell\\open\\command",
-                            0,
-                            winreg.KEY_READ
-                        )
-                        command, _ = winreg.QueryValueEx(cmd_key, "")
-                        winreg.CloseKey(cmd_key)
-                        
-                        # Vergelijk het path in het command met onze executable
-                        if current_exe in command.lower():
-                            return True
-                    except:
-                        pass
-            except:
+
+                # Match op exe-naam in ProgId (Applications\NVict Reader.exe, etc.)
+                if "nvict" in prog_id_lower or "nvictreader" in prog_id_lower:
+                    return True
+
+                # Zoek het command-pad dat bij deze ProgId hoort
+                for root_key in (winreg.HKEY_CURRENT_USER, winreg.HKEY_CLASSES_ROOT):
+                    for sub in (f"Software\\Classes\\{prog_id}\\shell\\open\\command",
+                                f"{prog_id}\\shell\\open\\command"):
+                        try:
+                            cmd_key = winreg.OpenKey(root_key, sub, 0, winreg.KEY_READ)
+                            command, _ = winreg.QueryValueEx(cmd_key, "")
+                            winreg.CloseKey(cmd_key)
+                            if exe_name in command.lower() or current_exe_lower in command.lower():
+                                return True
+                        except Exception:
+                            continue
+            except Exception:
                 pass
-            
-            # Fallback: check HKEY_CLASSES_ROOT\.pdf (minder betrouwbaar)
-            try:
-                key = winreg.OpenKey(winreg.HKEY_CLASSES_ROOT, ".pdf", 0, winreg.KEY_READ)
-                default_value, _ = winreg.QueryValueEx(key, "")
-                winreg.CloseKey(key)
-                
-                if default_value == "NVictReader.PDF":
-                    # Extra verificatie: check of het path klopt
-                    cmd_key = winreg.OpenKey(
-                        winreg.HKEY_CURRENT_USER,
-                        f"Software\\Classes\\NVictReader.PDF\\shell\\open\\command",
-                        0,
-                        winreg.KEY_READ
-                    )
-                    command, _ = winreg.QueryValueEx(cmd_key, "")
-                    winreg.CloseKey(cmd_key)
-                    
-                    if current_exe in command.lower():
-                        return True
-            except:
-                pass
-            
+
             return False
         except Exception as e:
             print(f"Error checking default handler: {e}")
@@ -1013,36 +986,45 @@ class NVictReader:
         self.toolbar_frame.config(bg=self.theme["BG_SECONDARY"])
 
         f = self.toolbar_frame
+
+        # Op kleinere schermen alleen iconen tonen (geen tekst-labels)
+        screen_w = self.root.winfo_screenwidth()
+        compact = screen_w < 1300
+
+        def lbl(text):
+            """Retourneer tekst-label of lege string in compacte modus"""
+            return "" if compact else text
+
         # ── Groep 1: Bestand ──
-        self.open_btn = self.create_toolbar_button(f, " Openen", "open",
+        self.open_btn = self.create_toolbar_button(f, lbl(" Openen"), "open",
                                                    self.open_pdf, self.theme["ACCENT_COLOR"])
-        self.save_btn = self.create_toolbar_button(f, " Opslaan", "save",
+        self.save_btn = self.create_toolbar_button(f, lbl(" Opslaan"), "save",
                                                    self.save_changes_to_pdf, self.theme["BG_SECONDARY"])
-        self.send_btn = self.create_toolbar_button(f, " Doorsturen", "send",
+        self.send_btn = self.create_toolbar_button(f, lbl(" Doorsturen"), "send",
                                                    self.send_pdf, self.theme["BG_SECONDARY"])
-        self.print_btn = self.create_toolbar_button(f, " Printen", "print",
+        self.print_btn = self.create_toolbar_button(f, lbl(" Printen"), "print",
                                                     self.print_pdf, self.theme["BG_SECONDARY"])
         self.add_toolbar_separator(f)
 
         # ── Groep 2: Bewerking ──
-        self.copy_btn = self.create_toolbar_button(f, " Kopiëren", "copy",
+        self.copy_btn = self.create_toolbar_button(f, lbl(" Kopiëren"), "copy",
                                                    self.copy_text, self.theme["BG_SECONDARY"])
         self.highlight_btn = self.create_toolbar_button(
-            f, " Markeer", "marker", self.toggle_highlight_mode,
+            f, lbl(" Markeer"), "marker", self.toggle_highlight_mode,
             self.theme["BG_SECONDARY"]
         )
-        self.edit_btn = self.create_toolbar_button(f, " Bewerken", "toolbox",
+        self.edit_btn = self.create_toolbar_button(f, lbl(" Bewerken"), "toolbox",
                                                    self.show_edit_menu, self.theme["BG_SECONDARY"])
-        self.type_text_btn = self.create_toolbar_button(f, " Tekst", "type-text",
+        self.type_text_btn = self.create_toolbar_button(f, lbl(" Tekst"), "type-text",
                                                         self.toggle_text_annotate_mode, self.theme["BG_SECONDARY"])
-        self.form_btn = self.create_toolbar_button(f, " Formulier", "form",
+        self.form_btn = self.create_toolbar_button(f, lbl(" Formulier"), "form",
                                                    self.toggle_form_mode, self.theme["BG_SECONDARY"])
-        self.search_btn = self.create_toolbar_button(f, " Zoeken", "search",
+        self.search_btn = self.create_toolbar_button(f, lbl(" Zoeken"), "search",
                                                      self.show_search_dialog, self.theme["BG_SECONDARY"])
         self.add_toolbar_separator(f)
 
         # ── Groep 3: Weergave ──
-        self.fullscreen_btn = self.create_toolbar_button(f, " Volledig scherm", "full-screen",
+        self.fullscreen_btn = self.create_toolbar_button(f, lbl(" Volledig scherm"), "full-screen",
                                                          self.toggle_fullscreen, self.theme["BG_SECONDARY"])
         self.fit_width_btn = self.create_toolbar_button(f, "", "fit-width",
                                                         lambda: self.set_zoom_mode("fit_width"),
@@ -1055,11 +1037,11 @@ class NVictReader:
 
         # ── Groep 4: Navigatie ──
         self.thumb_btn = self.create_toolbar_button(
-            f, " Pagina's", "pages", self.toggle_thumbnail_panel,
+            f, lbl(" Pagina's"), "pages", self.toggle_thumbnail_panel,
             self.theme["ACCENT_COLOR"] if self.thumbnail_visible else self.theme["BG_SECONDARY"]
         )
         self.book_btn = self.create_toolbar_button(
-            f, " Boek", "book", self.toggle_book_mode,
+            f, lbl(" Boek"), "book", self.toggle_book_mode,
             self.theme["BG_SECONDARY"]
         )
         self.prev_btn = self.create_toolbar_button(f, "", "prev-page",
@@ -1108,8 +1090,12 @@ class NVictReader:
     }
 
     def create_toolbar_button(self, parent, text, icon_name, command, bg_color):
+        compact = self.root.winfo_screenwidth() < 1300
+        btn_padx = 2 if compact else 5
+        inner_padx = 4 if compact else 10
+
         btn_frame = tk.Frame(parent, bg=bg_color, highlightthickness=0)
-        btn_frame.pack(side=tk.LEFT, padx=5, pady=10)
+        btn_frame.pack(side=tk.LEFT, padx=btn_padx, pady=10)
 
         # Controleer of icon bestaat
         icon_image = self.icons.get(icon_name)
@@ -1149,7 +1135,7 @@ class NVictReader:
                            bg=bg_color, fg=self.theme["TEXT_PRIMARY"],
                            activebackground=self.theme["ACCENT_COLOR"],
                            activeforeground="#ffffff", relief="flat", bd=0,
-                           padx=10, pady=5, cursor="hand2")
+                           padx=inner_padx, pady=5, cursor="hand2")
         else:
             # Geen icon - gebruik emoji fallback
             display_text = text
@@ -1163,7 +1149,7 @@ class NVictReader:
                            bg=bg_color, fg=self.theme["TEXT_PRIMARY"],
                            activebackground=self.theme["ACCENT_COLOR"],
                            activeforeground="#ffffff", relief="flat", bd=0,
-                           padx=10, pady=5, cursor="hand2")
+                           padx=inner_padx, pady=5, cursor="hand2")
 
         btn.pack()
 
@@ -1218,8 +1204,10 @@ class NVictReader:
             pass
 
     def add_toolbar_separator(self, parent):
+        compact = self.root.winfo_screenwidth() < 1300
+        sep_padx = 4 if compact else 10
         separator = tk.Frame(parent, bg=self.theme["TEXT_SECONDARY"], width=1, height=40)
-        separator.pack(side=tk.LEFT, padx=10, pady=10)
+        separator.pack(side=tk.LEFT, padx=sep_padx, pady=10)
 
     def create_status_bar(self):
         self.status_bar = tk.Frame(self.root, bg=self.theme["BG_SECONDARY"], height=30,
