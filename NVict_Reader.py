@@ -971,10 +971,50 @@ class NVictReader:
         help_menu.add_command(label="Over NVict Reader", command=self.show_about)
 
     def create_modern_toolbar(self):
-        self.toolbar_frame = tk.Frame(self.root, bg=self.theme["BG_SECONDARY"], height=60,
+        # Buitenste container met vaste hoogte
+        self.toolbar_outer = tk.Frame(self.root, bg=self.theme["BG_SECONDARY"], height=60,
                                       highlightbackground="#e0e0e0", highlightthickness=1)
-        self.toolbar_frame.pack(side=tk.TOP, fill=tk.X, padx=20, pady=(20, 0))
-        self.toolbar_frame.pack_propagate(False)
+        self.toolbar_outer.pack(side=tk.TOP, fill=tk.X, padx=20, pady=(20, 0))
+        self.toolbar_outer.pack_propagate(False)
+
+        # Canvas voor horizontaal scrollen
+        self.toolbar_canvas = tk.Canvas(self.toolbar_outer, bg=self.theme["BG_SECONDARY"],
+                                        height=58, highlightthickness=0, bd=0)
+        self.toolbar_canvas.pack(side=tk.TOP, fill=tk.BOTH, expand=True)
+
+        # Binnenframe waar de knoppen in komen
+        self.toolbar_frame = tk.Frame(self.toolbar_canvas, bg=self.theme["BG_SECONDARY"], height=58)
+        self._toolbar_win_id = self.toolbar_canvas.create_window(
+            (0, 0), window=self.toolbar_frame, anchor="nw", height=58
+        )
+
+        # Scrollregio bijwerken als de inhoud verandert
+        def _on_toolbar_configure(e):
+            self.toolbar_canvas.configure(scrollregion=self.toolbar_canvas.bbox("all"))
+            # Toon/verberg scrollbar op basis van beschikbare breedte
+            canvas_w = self.toolbar_canvas.winfo_width()
+            frame_w = self.toolbar_frame.winfo_reqwidth()
+            if frame_w > canvas_w:
+                self.toolbar_scrollbar.pack(side=tk.BOTTOM, fill=tk.X)
+            else:
+                self.toolbar_scrollbar.pack_forget()
+
+        self.toolbar_frame.bind("<Configure>", _on_toolbar_configure)
+        self.toolbar_canvas.bind("<Configure>",
+            lambda e: self.toolbar_canvas.configure(scrollregion=self.toolbar_canvas.bbox("all")))
+
+        # Muiswiel horizontaal scrollen op de toolbar
+        def _on_toolbar_mousewheel(e):
+            self.toolbar_canvas.xview_scroll(int(-1 * (e.delta / 120)), "units")
+
+        self.toolbar_canvas.bind("<MouseWheel>", _on_toolbar_mousewheel)
+        self.toolbar_frame.bind("<MouseWheel>", _on_toolbar_mousewheel)
+
+        # Dunne horizontale scrollbar (alleen zichtbaar als nodig)
+        self.toolbar_scrollbar = tk.Scrollbar(self.toolbar_outer, orient=tk.HORIZONTAL,
+                                              command=self.toolbar_canvas.xview)
+        self.toolbar_canvas.configure(xscrollcommand=self.toolbar_scrollbar.set)
+
         self._fill_toolbar()
 
     def _fill_toolbar(self):
@@ -987,44 +1027,36 @@ class NVictReader:
 
         f = self.toolbar_frame
 
-        # Op kleinere schermen alleen iconen tonen (geen tekst-labels)
-        screen_w = self.root.winfo_screenwidth()
-        compact = screen_w < 1300
-
-        def lbl(text):
-            """Retourneer tekst-label of lege string in compacte modus"""
-            return "" if compact else text
-
         # ── Groep 1: Bestand ──
-        self.open_btn = self.create_toolbar_button(f, lbl(" Openen"), "open",
+        self.open_btn = self.create_toolbar_button(f, " Openen", "open",
                                                    self.open_pdf, self.theme["ACCENT_COLOR"])
-        self.save_btn = self.create_toolbar_button(f, lbl(" Opslaan"), "save",
+        self.save_btn = self.create_toolbar_button(f, " Opslaan", "save",
                                                    self.save_changes_to_pdf, self.theme["BG_SECONDARY"])
-        self.send_btn = self.create_toolbar_button(f, lbl(" Doorsturen"), "send",
+        self.send_btn = self.create_toolbar_button(f, " Doorsturen", "send",
                                                    self.send_pdf, self.theme["BG_SECONDARY"])
-        self.print_btn = self.create_toolbar_button(f, lbl(" Printen"), "print",
+        self.print_btn = self.create_toolbar_button(f, " Printen", "print",
                                                     self.print_pdf, self.theme["BG_SECONDARY"])
         self.add_toolbar_separator(f)
 
         # ── Groep 2: Bewerking ──
-        self.copy_btn = self.create_toolbar_button(f, lbl(" Kopiëren"), "copy",
+        self.copy_btn = self.create_toolbar_button(f, " Kopiëren", "copy",
                                                    self.copy_text, self.theme["BG_SECONDARY"])
         self.highlight_btn = self.create_toolbar_button(
-            f, lbl(" Markeer"), "marker", self.toggle_highlight_mode,
+            f, " Markeer", "marker", self.toggle_highlight_mode,
             self.theme["BG_SECONDARY"]
         )
-        self.edit_btn = self.create_toolbar_button(f, lbl(" Bewerken"), "toolbox",
+        self.edit_btn = self.create_toolbar_button(f, " Bewerken", "toolbox",
                                                    self.show_edit_menu, self.theme["BG_SECONDARY"])
-        self.type_text_btn = self.create_toolbar_button(f, lbl(" Tekst"), "type-text",
+        self.type_text_btn = self.create_toolbar_button(f, " Tekst", "type-text",
                                                         self.toggle_text_annotate_mode, self.theme["BG_SECONDARY"])
-        self.form_btn = self.create_toolbar_button(f, lbl(" Formulier"), "form",
+        self.form_btn = self.create_toolbar_button(f, " Formulier", "form",
                                                    self.toggle_form_mode, self.theme["BG_SECONDARY"])
-        self.search_btn = self.create_toolbar_button(f, lbl(" Zoeken"), "search",
+        self.search_btn = self.create_toolbar_button(f, " Zoeken", "search",
                                                      self.show_search_dialog, self.theme["BG_SECONDARY"])
         self.add_toolbar_separator(f)
 
         # ── Groep 3: Weergave ──
-        self.fullscreen_btn = self.create_toolbar_button(f, lbl(" Volledig scherm"), "full-screen",
+        self.fullscreen_btn = self.create_toolbar_button(f, " Volledig scherm", "full-screen",
                                                          self.toggle_fullscreen, self.theme["BG_SECONDARY"])
         self.fit_width_btn = self.create_toolbar_button(f, "", "fit-width",
                                                         lambda: self.set_zoom_mode("fit_width"),
@@ -1037,11 +1069,11 @@ class NVictReader:
 
         # ── Groep 4: Navigatie ──
         self.thumb_btn = self.create_toolbar_button(
-            f, lbl(" Pagina's"), "pages", self.toggle_thumbnail_panel,
+            f, " Pagina's", "pages", self.toggle_thumbnail_panel,
             self.theme["ACCENT_COLOR"] if self.thumbnail_visible else self.theme["BG_SECONDARY"]
         )
         self.book_btn = self.create_toolbar_button(
-            f, lbl(" Boek"), "book", self.toggle_book_mode,
+            f, " Boek", "book", self.toggle_book_mode,
             self.theme["BG_SECONDARY"]
         )
         self.prev_btn = self.create_toolbar_button(f, "", "prev-page",
@@ -1090,12 +1122,8 @@ class NVictReader:
     }
 
     def create_toolbar_button(self, parent, text, icon_name, command, bg_color):
-        compact = self.root.winfo_screenwidth() < 1300
-        btn_padx = 2 if compact else 5
-        inner_padx = 4 if compact else 10
-
         btn_frame = tk.Frame(parent, bg=bg_color, highlightthickness=0)
-        btn_frame.pack(side=tk.LEFT, padx=btn_padx, pady=10)
+        btn_frame.pack(side=tk.LEFT, padx=5, pady=10)
 
         # Controleer of icon bestaat
         icon_image = self.icons.get(icon_name)
@@ -1135,7 +1163,7 @@ class NVictReader:
                            bg=bg_color, fg=self.theme["TEXT_PRIMARY"],
                            activebackground=self.theme["ACCENT_COLOR"],
                            activeforeground="#ffffff", relief="flat", bd=0,
-                           padx=inner_padx, pady=5, cursor="hand2")
+                           padx=10, pady=5, cursor="hand2")
         else:
             # Geen icon - gebruik emoji fallback
             display_text = text
@@ -1149,7 +1177,7 @@ class NVictReader:
                            bg=bg_color, fg=self.theme["TEXT_PRIMARY"],
                            activebackground=self.theme["ACCENT_COLOR"],
                            activeforeground="#ffffff", relief="flat", bd=0,
-                           padx=inner_padx, pady=5, cursor="hand2")
+                           padx=10, pady=5, cursor="hand2")
 
         btn.pack()
 
@@ -1177,6 +1205,14 @@ class NVictReader:
 
         btn.bind("<Enter>", on_enter)
         btn.bind("<Leave>", on_leave)
+
+        # Muiswiel doorsturen naar toolbar canvas voor horizontaal scrollen
+        def _fwd_mousewheel(e):
+            self.toolbar_canvas.xview_scroll(int(-1 * (e.delta / 120)), "units")
+        btn.bind("<MouseWheel>", _fwd_mousewheel)
+        btn_frame.bind("<MouseWheel>", _fwd_mousewheel)
+        indicator.bind("<MouseWheel>", _fwd_mousewheel)
+
         self.toolbar_buttons[icon_name] = (btn, text)
 
         if icon_name in self._TOOLTIPS:
@@ -1204,10 +1240,8 @@ class NVictReader:
             pass
 
     def add_toolbar_separator(self, parent):
-        compact = self.root.winfo_screenwidth() < 1300
-        sep_padx = 4 if compact else 10
         separator = tk.Frame(parent, bg=self.theme["TEXT_SECONDARY"], width=1, height=40)
-        separator.pack(side=tk.LEFT, padx=sep_padx, pady=10)
+        separator.pack(side=tk.LEFT, padx=10, pady=10)
 
     def create_status_bar(self):
         self.status_bar = tk.Frame(self.root, bg=self.theme["BG_SECONDARY"], height=30,
@@ -1407,7 +1441,10 @@ class NVictReader:
         self.save_update_settings()
         self.apply_theme()  # update self.theme
 
-        # Vul toolbar en statusbalk opnieuw (frames blijven op hun plek)
+        # Toolbar containers herkleurent + vullen
+        self.toolbar_outer.config(bg=self.theme["BG_SECONDARY"],
+                                  highlightbackground="#e0e0e0")
+        self.toolbar_canvas.config(bg=self.theme["BG_SECONDARY"])
         self._fill_toolbar()
         self._fill_status_bar()
 
