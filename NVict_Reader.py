@@ -977,10 +977,34 @@ class NVictReader:
         self.toolbar_outer.pack(side=tk.TOP, fill=tk.X, padx=20, pady=(20, 0))
         self.toolbar_outer.pack_propagate(False)
 
-        # Canvas voor horizontaal scrollen
+        # Pijlknop links — altijd aanwezig, vast gepacked
+        self._tb_left_btn = tk.Button(
+            self.toolbar_outer, text="◀", font=("Segoe UI", 10),
+            bg=self.theme["BG_SECONDARY"], fg=self.theme["TEXT_SECONDARY"],
+            activebackground=self.theme["ACCENT_COLOR"], activeforeground="white",
+            relief="flat", bd=0, cursor="hand2", width=2,
+            command=lambda: self.toolbar_canvas.xview_scroll(-3, "units")
+        )
+        self._tb_left_btn.pack(side=tk.LEFT, fill=tk.Y)
+        self._tb_left_sep = tk.Frame(self.toolbar_outer, bg=self.theme["TEXT_SECONDARY"], width=1)
+        self._tb_left_sep.pack(side=tk.LEFT, fill=tk.Y, pady=8)
+
+        # Pijlknop rechts — altijd aanwezig, vast gepacked
+        self._tb_right_btn = tk.Button(
+            self.toolbar_outer, text="▶", font=("Segoe UI", 10),
+            bg=self.theme["BG_SECONDARY"], fg=self.theme["TEXT_SECONDARY"],
+            activebackground=self.theme["ACCENT_COLOR"], activeforeground="white",
+            relief="flat", bd=0, cursor="hand2", width=2,
+            command=lambda: self.toolbar_canvas.xview_scroll(3, "units")
+        )
+        self._tb_right_btn.pack(side=tk.RIGHT, fill=tk.Y)
+        self._tb_right_sep = tk.Frame(self.toolbar_outer, bg=self.theme["TEXT_SECONDARY"], width=1)
+        self._tb_right_sep.pack(side=tk.RIGHT, fill=tk.Y, pady=8)
+
+        # Canvas voor horizontaal scrollen — tussen de pijlen
         self.toolbar_canvas = tk.Canvas(self.toolbar_outer, bg=self.theme["BG_SECONDARY"],
                                         height=58, highlightthickness=0, bd=0)
-        self.toolbar_canvas.pack(side=tk.TOP, fill=tk.BOTH, expand=True)
+        self.toolbar_canvas.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
 
         # Binnenframe waar de knoppen in komen
         self.toolbar_frame = tk.Frame(self.toolbar_canvas, bg=self.theme["BG_SECONDARY"], height=58)
@@ -988,19 +1012,8 @@ class NVictReader:
             (0, 0), window=self.toolbar_frame, anchor="nw", height=58
         )
 
-        # Scrollregio bijwerken als de inhoud verandert
-        def _on_toolbar_configure(e):
-            self.toolbar_canvas.configure(scrollregion=self.toolbar_canvas.bbox("all"))
-            # Toon/verberg scrollbar op basis van beschikbare breedte
-            canvas_w = self.toolbar_canvas.winfo_width()
-            frame_w = self.toolbar_frame.winfo_reqwidth()
-            if frame_w > canvas_w:
-                self.toolbar_scrollbar.pack(side=tk.BOTTOM, fill=tk.X)
-            else:
-                self.toolbar_scrollbar.pack_forget()
-
-        self.toolbar_frame.bind("<Configure>", _on_toolbar_configure)
-        self.toolbar_canvas.bind("<Configure>",
+        # Scrollregio bijwerken wanneer inhoud verandert
+        self.toolbar_frame.bind("<Configure>",
             lambda e: self.toolbar_canvas.configure(scrollregion=self.toolbar_canvas.bbox("all")))
 
         # Muiswiel horizontaal scrollen op de toolbar
@@ -1009,11 +1022,6 @@ class NVictReader:
 
         self.toolbar_canvas.bind("<MouseWheel>", _on_toolbar_mousewheel)
         self.toolbar_frame.bind("<MouseWheel>", _on_toolbar_mousewheel)
-
-        # Dunne horizontale scrollbar (alleen zichtbaar als nodig)
-        self.toolbar_scrollbar = tk.Scrollbar(self.toolbar_outer, orient=tk.HORIZONTAL,
-                                              command=self.toolbar_canvas.xview)
-        self.toolbar_canvas.configure(xscrollcommand=self.toolbar_scrollbar.set)
 
         self._fill_toolbar()
 
@@ -1441,10 +1449,16 @@ class NVictReader:
         self.save_update_settings()
         self.apply_theme()  # update self.theme
 
-        # Toolbar containers herkleurent + vullen
+        # Toolbar containers herkleuren + vullen
         self.toolbar_outer.config(bg=self.theme["BG_SECONDARY"],
                                   highlightbackground="#e0e0e0")
         self.toolbar_canvas.config(bg=self.theme["BG_SECONDARY"])
+        self._tb_left_btn.config(bg=self.theme["BG_SECONDARY"], fg=self.theme["TEXT_SECONDARY"],
+                                 activebackground=self.theme["ACCENT_COLOR"])
+        self._tb_right_btn.config(bg=self.theme["BG_SECONDARY"], fg=self.theme["TEXT_SECONDARY"],
+                                  activebackground=self.theme["ACCENT_COLOR"])
+        self._tb_left_sep.config(bg=self.theme["TEXT_SECONDARY"])
+        self._tb_right_sep.config(bg=self.theme["TEXT_SECONDARY"])
         self._fill_toolbar()
         self._fill_status_bar()
 
