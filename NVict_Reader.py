@@ -25,11 +25,12 @@ import urllib.request
 import urllib.error
 import json
 import threading
+import queue
 import socket
 import time
 
 # Applicatie versie
-APP_VERSION = "2.2"
+APP_VERSION = "2.3"
 UPDATE_CHECK_URL = "https://www.nvict.nl/software/updates/nvict_reader_version.json"
 
 # ====================================================================
@@ -630,6 +631,9 @@ class NVictReader:
         except:
             pass
 
+        self._app_alive = True  # Thread-safe vlag; gezet op False bij afsluiten
+        self._thread_queue = queue.Queue()  # Thread-safe queue voor achtergrondtaken
+        self._poll_thread_queue()  # Start polling loop
         self.config = {"theme": "Systeemstandaard"}
         self.highlight_mode = False    # Markeermodus (geel markeren)
         self.thumbnail_visible = True  # Thumbnail-paneel zichtbaar
@@ -685,13 +689,30 @@ class NVictReader:
         self.update_settings['first_run'] = False
         self.save_update_settings()
 
+    def _poll_thread_queue(self):
+        """Verwerk taken uit de thread-safe queue op de main thread.
+        Dit voorkomt GIL-crashes door Tkinter-calls vanuit achtergrondthreads."""
+        try:
+            while True:
+                func = self._thread_queue.get_nowait()
+                try:
+                    func()
+                except Exception:
+                    pass
+        except queue.Empty:
+            pass
+        if self._app_alive:
+            self.root.after(100, self._poll_thread_queue)
+
     def setup_drag_and_drop(self):
         """Configureer drag-and-drop ondersteuning voor PDF bestanden"""
         try:
             import windnd
 
             def on_drop(file_list):
-                """Verwerk gesleepte bestanden"""
+                """Verwerk gesleepte bestanden — windnd roept dit aan vanuit een
+                achtergrondthread, dus we zetten het in de thread-safe queue
+                zodat de main thread het oppakt (geen Tkinter-calls vanuit thread)."""
                 for file_bytes in file_list:
                     # windnd geeft bytes terug, decodeer naar string
                     if isinstance(file_bytes, bytes):
@@ -703,7 +724,8 @@ class NVictReader:
                     file_path = file_path.strip('"').strip("'")
 
                     if file_path.lower().endswith('.pdf') and os.path.isfile(file_path):
-                        self.add_new_tab(file_path)
+                        # Zet in queue — main thread pikt het op via _poll_thread_queue
+                        self._thread_queue.put(lambda fp=file_path: self.add_new_tab(fp))
 
             windnd.hook_dropfiles(self.root, func=on_drop)
 
@@ -798,10 +820,8 @@ class NVictReader:
                     except Exception:
                         pass
                 self.icons_loaded = True
-                try:
-                    self.root.after(0, self.update_toolbar_icons)
-                except:
-                    pass
+                # Gebruik thread-safe queue i.p.v. root.after vanuit thread
+                self._thread_queue.put(self.update_toolbar_icons)
             except Exception as e:
                 print(f"Icon loading error: {e}")
 
@@ -888,7 +908,8 @@ class NVictReader:
                                              bg=self.theme["BG_PRIMARY"])
                         logo_label.place(relx=0.5, rely=0.35, anchor="center")
                     
-                    self.root.after(0, update_logo)
+                    # Gebruik thread-safe queue i.p.v. root.after vanuit thread
+                    self._thread_queue.put(update_logo)
             except Exception as e:
                 print(f"Logo loading error: {e}")
         
@@ -1664,7 +1685,10 @@ class NVictReader:
         def background_check():
             import time
             time.sleep(2)  # Wacht 2 seconden na opstarten
-            self.root.after(0, lambda: self.check_for_updates(silent=True))
+            if not self._app_alive:
+                return
+            # Zet in thread-safe queue — geen directe Tkinter-calls vanuit thread
+            self._thread_queue.put(lambda: self.check_for_updates(silent=True))
         
         thread = threading.Thread(target=background_check, daemon=True)
         thread.start()
@@ -2746,6 +2770,25 @@ class NVictReader:
         """Toon ingebouwde print dialoog met printer selectie"""
         tab = self.get_active_tab()
         if isinstance(tab, PDFTab):
+            # Als er onopgeslagen wijzigingen zijn, maak tijdelijk bewerkt document
+            self._print_temp_path = None
+            if self._has_unsaved_changes():
+                answer = messagebox.askyesnocancel(
+                    "Onopgeslagen wijzigingen",
+                    "Er zijn onopgeslagen wijzigingen (annotaties, markeringen of formuliervelden).\n\n"
+                    "Wilt u de bewerkingen meeprinten?\n\n"
+                    "Ja = Bewerkingen meeprinten\n"
+                    "Nee = Origineel printen zonder wijzigingen\n"
+                    "Annuleren = Niet printen"
+                )
+                if answer is None:
+                    return
+                if answer:
+                    # Maak tijdelijk bewerkt PDF voor printen
+                    tmp_path = self._build_modified_pdf(tab)
+                    if tmp_path:
+                        self._print_temp_path = tmp_path
+
             print_dialog = tk.Toplevel(self.root)
             print_dialog.title("Afdrukken")
             print_dialog.geometry("650x730")
@@ -3249,7 +3292,7 @@ class NVictReader:
             import win32ui
             import win32con
             from PIL import Image, ImageWin
-            
+
         except ImportError:
             messagebox.showerror("Module Ontbreekt",
                 "De 'pywin32' module is vereist voor printen.\n\n"
@@ -3257,11 +3300,19 @@ class NVictReader:
                 "Start daarna NVict Reader opnieuw op.")
             return
         
+        # Check of we een gemodificeerde PDF moeten gebruiken
+        modified_doc = None
+        temp_path = getattr(self, '_print_temp_path', None)
+
         try:
+            # Open gemodificeerde PDF als die beschikbaar is
+            if temp_path and os.path.exists(temp_path):
+                modified_doc = fitz.open(temp_path)
+
             # Krijg printer naam
             if printer == "Standaard printer" or not printer:
                 printer = win32print.GetDefaultPrinter()
-            
+
             # Verificeer dat printer bestaat en beschikbaar is
             try:
                 printer_info = win32print.GetPrinter(win32print.OpenPrinter(printer))
@@ -3350,8 +3401,9 @@ class NVictReader:
                             # Start nieuwe pagina
                             hDC.StartPage()
                             
-                            # Haal PDF pagina op
-                            page = tab.pdf_document[page_num]
+                            # Haal PDF pagina op (gebruik gemodificeerde versie als beschikbaar)
+                            pdf_doc = modified_doc if modified_doc else tab.pdf_document
+                            page = pdf_doc[page_num]
                             
                             # Render pagina naar hoge resolutie image
                             dpi_scale = max(printer_ppi_x, printer_ppi_y) / 72
@@ -3438,7 +3490,19 @@ class NVictReader:
                     hDC.DeleteDC()
                 except:
                     pass
-            
+                # Sluit en verwijder gemodificeerde PDF
+                if modified_doc:
+                    try:
+                        modified_doc.close()
+                    except:
+                        pass
+                if temp_path and os.path.exists(temp_path):
+                    try:
+                        os.remove(temp_path)
+                    except:
+                        pass
+                self._print_temp_path = None
+
             # Alleen success message tonen als echt gelukt
             if print_success:
                 # Maak leesbare pagina info
@@ -3576,8 +3640,10 @@ class NVictReader:
                 annot_obj = page.add_freetext_annot(
                     rect, text,
                     fontsize=font_size, fontname=fontname,
-                    text_color=color, fill_color=(1, 1, 1),
+                    text_color=color,
                 )
+                # Verwijder achtergrondkleur en rand voor transparante weergave
+                annot_obj.set_colors(fill=None, stroke=None)
                 annot_obj.update()
 
             # 3. Highlight-markeringen toevoegen
@@ -3656,20 +3722,7 @@ class NVictReader:
     def _has_unsaved_changes(self):
         """Controleer of de actieve tab onopgeslagen wijzigingen heeft"""
         tab = self.get_active_tab()
-        if not isinstance(tab, PDFTab):
-            return False
-        # Formuliervelden ingevuld?
-        if tab.form_widgets:
-            self._save_form_widget_values(tab)
-        if tab.form_field_values:
-            return True
-        # Tekst-annotaties geplaatst?
-        if tab.text_annotations:
-            return True
-        # Markeringen (highlight annotaties)?
-        if hasattr(tab, 'highlight_annotations') and tab.highlight_annotations:
-            return True
-        return False
+        return self._tab_has_unsaved_changes(tab)
 
     def _update_save_button_state(self):
         """Update de opslaan-knop: actief als er wijzigingen zijn, anders uitgegreyed"""
@@ -4074,7 +4127,7 @@ class NVictReader:
 
             # Bind klik-event op canvas (enkelklik)
             tab.canvas.bind("<Button-1>", self._on_text_annotate_click)
-            tab.canvas.config(cursor="crosshair")
+            tab.canvas.config(cursor="xterm")
 
             self._set_toolbar_button_active("type-text", True)
 
@@ -4099,6 +4152,11 @@ class NVictReader:
         """Verwerk klik op canvas voor tekst-annotatie plaatsing"""
         tab = self.get_active_tab()
         if not isinstance(tab, PDFTab) or not tab.text_annotate_mode:
+            return
+        # Niet openen als het actiemenu net open was of verplaats-modus actief is
+        if getattr(self, '_annot_menu_open', False):
+            return
+        if getattr(tab, '_moving_annot_index', None) is not None:
             return
 
         # Sluit bestaande editor(s) — slechts één tegelijk
@@ -4232,8 +4290,9 @@ class NVictReader:
             text_content = txt.get("1.0", "end-1c").strip()
             if text_content:
                 pdf_x = (cx - px0) / zoom
-                pdf_y = (cy - py0) / zoom
+                # Verschuif Y omhoog met lettergrootte zodat klikpunt = onderkant tekst
                 font_size = size_var.get()
+                pdf_y = (cy - py0) / zoom - font_size
                 text_color = color_var.get()
                 chosen_font = font_map.get(font_var.get(), "helv")
 
@@ -4387,9 +4446,113 @@ class NVictReader:
                 tags=("text_annotation", annot_tag)
             )
 
-            # Klik-binding voor bewerken/verwijderen (alleen in tekst-modus)
+            # Klik-binding: toon actiemenu (alleen in tekst-modus)
             tab.canvas.tag_bind(annot_tag, "<Button-1>",
-                                lambda e, i=idx: self._edit_text_annotation(e, i))
+                                lambda e, i=idx: self._show_annot_action_menu(e, i))
+
+    def _show_annot_action_menu(self, event, annot_index):
+        """Toon popup-menu bij klik op een tekst-annotatie: Bewerken / Verplaatsen / Verwijderen"""
+        tab = self.get_active_tab()
+        if not isinstance(tab, PDFTab) or not tab.text_annotate_mode:
+            return
+        if annot_index < 0 or annot_index >= len(tab.text_annotations):
+            return
+
+        # Voorkom dat de klik ook een nieuwe annotatie opent
+        self._annot_menu_open = True
+
+        menu = tk.Menu(tab.canvas, tearoff=0, font=("Segoe UI", 10))
+        menu.add_command(label="Bewerken",
+                         command=lambda: self._annot_menu_action("edit", tab, annot_index))
+        menu.add_command(label="Verplaatsen",
+                         command=lambda: self._annot_menu_action("move", tab, annot_index))
+        menu.add_separator()
+        menu.add_command(label="Verwijderen",
+                         command=lambda: self._annot_menu_action("delete", tab, annot_index))
+
+        def _on_menu_close():
+            self._annot_menu_open = False
+            menu.destroy()
+
+        menu.bind("<Unmap>", lambda e: setattr(self, '_annot_menu_open', False))
+
+        try:
+            menu.tk_popup(event.x_root, event.y_root)
+        finally:
+            pass
+
+    def _annot_menu_action(self, action, tab, annot_index):
+        """Voer de gekozen actie uit op een tekst-annotatie"""
+        self._annot_menu_open = False
+
+        if action == "edit":
+            self._editing_annot_index = annot_index
+            # Simuleer een klik op de annotatie-positie om de editor te openen
+            annot = tab.text_annotations[annot_index]
+            page_num = annot["page_num"]
+            if page_num in tab.page_regions:
+                px0, py0, _, _ = tab.page_regions[page_num]
+                cx = annot["pdf_x"] * tab.zoom_level + px0
+                cy = annot["pdf_y"] * tab.zoom_level + py0
+                # Maak een nep-event met de juiste positie
+                class FakeEvent:
+                    pass
+                fake = FakeEvent()
+                fake.x = int(cx - tab.canvas.canvasx(0))
+                fake.y = int(cy - tab.canvas.canvasy(0))
+                self._on_text_annotate_click(fake)
+
+        elif action == "move":
+            # Start verplaats-modus: volgende klik bepaalt nieuwe positie
+            tab._moving_annot_index = annot_index
+            tab.canvas.config(cursor="xterm")
+            self.status_label.config(
+                text=f"Klik op de nieuwe positie voor de tekst"
+            )
+            # Tijdelijk de klik-handler overschrijven
+            tab.canvas.unbind("<Button-1>")
+            tab.canvas.bind("<Button-1>",
+                            lambda e: self._place_moved_annotation(e, tab, annot_index))
+
+        elif action == "delete":
+            if 0 <= annot_index < len(tab.text_annotations):
+                tab.text_annotations.pop(annot_index)
+                self.display_page(tab)
+                self._update_save_button_state()
+
+    def _place_moved_annotation(self, event, tab, annot_index):
+        """Plaats de verplaatste annotatie op de nieuwe klik-positie"""
+        cx = tab.canvas.canvasx(event.x)
+        cy = tab.canvas.canvasy(event.y)
+        zoom = tab.zoom_level
+
+        # Vind de doelpagina
+        target_page = None
+        for pn, (px0, py0, px1, py1) in tab.page_regions.items():
+            if px0 <= cx <= px1 and py0 <= cy <= py1:
+                target_page = pn
+                break
+
+        if target_page is not None and 0 <= annot_index < len(tab.text_annotations):
+            px0, py0, _, _ = tab.page_regions[target_page]
+            new_pdf_x = (cx - px0) / zoom
+            # Verschuif Y omhoog met lettergrootte zodat klikpunt = onderkant tekst
+            font_size = tab.text_annotations[annot_index].get("font_size", 11)
+            new_pdf_y = (cy - py0) / zoom - font_size
+
+            tab.text_annotations[annot_index]["page_num"] = target_page
+            tab.text_annotations[annot_index]["pdf_x"] = new_pdf_x
+            tab.text_annotations[annot_index]["pdf_y"] = new_pdf_y
+
+        # Herstel normale tekst-annotatie modus
+        tab._moving_annot_index = None
+        tab.canvas.config(cursor="xterm")
+        tab.canvas.unbind("<Button-1>")
+        tab.canvas.bind("<Button-1>", self._on_text_annotate_click)
+        self.status_label.config(text="Tekst-modus: klik op de PDF om tekst te plaatsen")
+
+        self.display_page(tab)
+        self._update_save_button_state()
 
     def save_annotations_to_pdf(self):
         """Sla alle tekst-annotaties op in een nieuw PDF-bestand"""
@@ -4450,9 +4613,9 @@ class NVictReader:
                     fontsize=font_size,
                     fontname=fontname,
                     text_color=color,
-                    fill_color=(1, 1, 1),  # Witte achtergrond
-                    border_color=None,
                 )
+                # Verwijder achtergrondkleur en rand voor transparante weergave
+                annot_obj.set_colors(fill=None, stroke=None)
                 annot_obj.update()
 
             doc.save(save_path)
@@ -4841,6 +5004,20 @@ class NVictReader:
                  font=("Segoe UI", 10), padx=25, pady=10,
                  relief="flat", cursor="hand2").pack(side=tk.LEFT, padx=5)
 
+    def _tab_has_unsaved_changes(self, tab):
+        """Controleer of een specifieke tab onopgeslagen wijzigingen heeft"""
+        if not isinstance(tab, PDFTab):
+            return False
+        if tab.form_widgets:
+            self._save_form_widget_values(tab)
+        if tab.form_field_values:
+            return True
+        if tab.text_annotations:
+            return True
+        if hasattr(tab, 'highlight_annotations') and tab.highlight_annotations:
+            return True
+        return False
+
     def exit_application(self):
         # Sla window geometry en state op voordat we afsluiten
         try:
@@ -4849,11 +5026,46 @@ class NVictReader:
             self.save_update_settings()
         except:
             pass  # Als opslaan mislukt, sluit gewoon af
-        
-        num_tabs = sum(1 for tab_id in self.notebook.tabs() 
+
+        # Controleer alle tabs op onopgeslagen wijzigingen
+        unsaved_tabs = []
+        for tab_id in self.notebook.tabs():
+            tab = self.notebook.nametowidget(tab_id)
+            if self._tab_has_unsaved_changes(tab):
+                name = os.path.basename(tab.file_path) if hasattr(tab, 'file_path') and tab.file_path else "Onbekend"
+                unsaved_tabs.append((tab, name))
+
+        if unsaved_tabs:
+            if len(unsaved_tabs) == 1:
+                msg = f"'{unsaved_tabs[0][1]}' heeft onopgeslagen wijzigingen.\n\nWilt u deze eerst opslaan?"
+            else:
+                namen = ", ".join(f"'{n}'" for _, n in unsaved_tabs)
+                msg = f"De volgende documenten hebben onopgeslagen wijzigingen:\n{namen}\n\nWilt u deze eerst opslaan?"
+
+            answer = messagebox.askyesnocancel("Onopgeslagen wijzigingen", msg)
+            if answer is None:
+                # Annuleren — niet afsluiten
+                return
+            elif answer:
+                # Ja — opslaan per tab
+                for tab, name in unsaved_tabs:
+                    # Selecteer de tab zodat save_changes_to_pdf de juiste tab vindt
+                    try:
+                        self.notebook.select(tab)
+                        self.root.update_idletasks()
+                    except Exception:
+                        pass
+                    try:
+                        self.save_changes_to_pdf()
+                    except Exception as e:
+                        messagebox.showerror("Opslaan mislukt",
+                            f"Kon '{name}' niet opslaan:\n{e}")
+            # Nee — gewoon doorgaan met afsluiten
+
+        num_tabs = sum(1 for tab_id in self.notebook.tabs()
                       if isinstance(self.notebook.nametowidget(tab_id), PDFTab))
 
-        if num_tabs > 1:
+        if num_tabs > 1 and not unsaved_tabs:
             answer = messagebox.askyesno(
                 "Afsluiten bevestigen",
                 f"Er zijn {num_tabs} documenten geopend. Weet u zeker dat u wilt afsluiten?"
@@ -4861,11 +5073,15 @@ class NVictReader:
             if not answer:
                 return
 
+        # Markeer app als gestopt VOORDAT Tkinter wordt opgeruimd,
+        # zodat achtergrondthreads geen Tkinter-calls meer doen
+        self._app_alive = False
+
         for tab_id in self.notebook.tabs():
             tab = self.notebook.nametowidget(tab_id)
             if isinstance(tab, PDFTab):
                 tab.close_document()
-        
+
         self.root.quit()
         self.root.destroy()
         sys.exit(0)

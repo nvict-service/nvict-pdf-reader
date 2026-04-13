@@ -1,3 +1,30 @@
+Versie 2.3 - Wat is er nieuw?
+
+Tekst-annotaties verbeterd
+  Lettertype keuze: Helvetica, Times Roman of Courier.
+  Tekst verplaatsen via rechtsklikmenu (Bewerken / Verplaatsen / Verwijderen).
+  I-beam cursor (|) voor nauwkeurige plaatsing; onderkant cursor = onderkant tekst.
+  Geen witte achtergrond meer achter geplaatste tekst in de opgeslagen PDF.
+
+Printen met wijzigingen
+  Bij het printen wordt nu gevraagd of onopgeslagen wijzigingen meegeprint moeten worden.
+  Annotaties, markeringen en formuliervelden worden correct meegeprint.
+
+Opslaan bij afsluiten
+  Bij het sluiten van de app wordt nu gevraagd of onopgeslagen wijzigingen bewaard moeten worden.
+  Werkt voor alle geopende tabs met wijzigingen.
+
+Scrollbare werkbalk
+  Op kleinere schermen is de werkbalk nu horizontaal scrollbaar met pijlknoppen.
+  Muiswiel-scrollen op de werkbalk wordt ondersteund.
+
+Drag-and-drop stabiel
+  Bestanden slepen naar het venster veroorzaakt geen crash meer (GIL threading fix).
+  Achtergrondtaken (iconen laden, update-check) zijn nu volledig thread-safe.
+
+Standaard PDF-handler
+  Geen onnodige melding meer wanneer NVict Reader al als standaard is ingesteld.
+
 Versie 2.2 - Wat is er nieuw?
 
 Formuliervelden invullen
