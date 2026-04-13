@@ -3315,8 +3315,9 @@ class NVictReader:
 
             # Verificeer dat printer bestaat en beschikbaar is
             try:
-                printer_info = win32print.GetPrinter(win32print.OpenPrinter(printer))
-            except:
+                hP = win32print.OpenPrinter(printer)
+                win32print.ClosePrinter(hP)
+            except Exception:
                 messagebox.showerror("Printer Niet Gevonden",
                     f"Kan printer '{printer}' niet vinden.\n\n"
                     f"Mogelijke oorzaken:\n"
@@ -3326,10 +3327,44 @@ class NVictReader:
                     f"Check de printer in Windows Instellingen.")
                 return
             
-            # Maak printer device context
+            # Maak printer device context met DEVMODE voor duplex/orientatie
+            devmode = None
+            try:
+                hPrinter = win32print.OpenPrinter(printer)
+                try:
+                    devmode = win32print.GetPrinter(hPrinter, 2).get("pDevMode")
+                finally:
+                    win32print.ClosePrinter(hPrinter)
+
+                if devmode:
+                    # Dubbelzijdig printen instellen
+                    if duplex:
+                        devmode.Duplex = win32con.DMDUP_VERTICAL  # Lange zijde
+                        devmode.Fields |= win32con.DM_DUPLEX
+
+                    # Orientatie instellen
+                    if orientation == "liggend":
+                        devmode.Orientation = win32con.DMORIENT_LANDSCAPE
+                    else:
+                        devmode.Orientation = win32con.DMORIENT_PORTRAIT
+                    devmode.Fields |= win32con.DM_ORIENTATION
+
+            except Exception as e:
+                # DEVMODE ophalen mislukt — doorgaan zonder extra instellingen
+                print(f"[Print] DEVMODE niet beschikbaar: {e}")
+                devmode = None
+
             try:
                 hDC = win32ui.CreateDC()
                 hDC.CreatePrinterDC(printer)
+
+                # Pas DEVMODE toe op de DC als beschikbaar
+                if devmode:
+                    try:
+                        hDC.ResetDC(devmode)
+                    except Exception as e:
+                        print(f"[Print] ResetDC mislukt, doorgaan zonder: {e}")
+
             except Exception as e:
                 messagebox.showerror("Kan Niet Verbinden met Printer",
                     f"Kan geen verbinding maken met printer '{printer}'.\n\n"
@@ -3995,6 +4030,16 @@ class NVictReader:
                     tk_widget = entry
 
                 if tk_widget:
+                    # Bind wijzigingsdetectie zodat de opslaan-knop actief wordt
+                    if isinstance(tk_widget, tk.Text):
+                        tk_widget.bind("<KeyRelease>", lambda e: self._update_save_button_state())
+                    elif isinstance(tk_widget, tk.Entry):
+                        tk_widget.bind("<KeyRelease>", lambda e: self._update_save_button_state())
+                    elif isinstance(tk_widget, ttk.Combobox):
+                        tk_widget.bind("<<ComboboxSelected>>", lambda e: self._update_save_button_state())
+                    elif isinstance(tk_widget, tk.Checkbutton) and var is not None:
+                        var.trace_add("write", lambda *a: self._update_save_button_state())
+
                     # Plaats widget op canvas
                     win_id = tab.canvas.create_window(
                         cx, cy, anchor="nw",
@@ -4018,8 +4063,8 @@ class NVictReader:
             try:
                 tab.canvas.delete(fw["win_id"])
                 fw["widget"].destroy()
-            except:
-                pass
+            except Exception:
+                pass  # Widget al vernietigd bij afsluiten
         tab.form_widgets = []
 
     def _save_form_widget_values(self, tab):
@@ -4039,8 +4084,8 @@ class NVictReader:
                     tab.form_field_values[xref] = widget.get("1.0", "end-1c")
                 else:  # Enkel-regel tekstveld
                     tab.form_field_values[xref] = widget.get()
-            except:
-                pass
+            except Exception as e:
+                print(f"[Form] Fout bij lezen widget '{fw.get('field_name', '?')}': {e}")
 
     def save_form_to_pdf(self):
         """Sla de ingevulde formuliervelden op in een nieuw PDF-bestand"""
