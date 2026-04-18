@@ -22,12 +22,14 @@ exe_name: NVict_Reader.exe
 setup_name: NVict_Reader_Setup.exe
 version_json_name: nvict_reader_version.json
 
-# FTP (zelfde server als Spotify, andere subdir)
+# FTP — login zit al in /software/, dus /NVict_Reader = web /software/NVict_Reader/
 ftp_subdir: /NVict_Reader
+# Updates gaan in de GEDEELDE /updates map (naast de app-folders), niet per app
+ftp_updates_subdir: /updates
 
-# Explicite URLs (kunnen ook afgeleid worden uit app_url)
+# Explicite URLs
 download_url: "https://www.nvict.nl/software/NVict_Reader/NVict_Reader_Setup.exe"
-update_check_url: "https://www.nvict.nl/software/NVict_Reader/updates/nvict_reader_version.json"
+update_check_url: "https://www.nvict.nl/software/updates/nvict_reader_version.json"
 
 setup_signed: true
 

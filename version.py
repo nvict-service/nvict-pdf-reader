@@ -9,4 +9,4 @@ APP_COPYRIGHT = "Copyright 2026 NVict Service"
 
 # Update-check endpoints
 DOWNLOAD_URL = "https://www.nvict.nl/software/NVict_Reader/NVict_Reader_Setup.exe"
-UPDATE_CHECK_URL = "https://www.nvict.nl/software/NVict_Reader/updates/nvict_reader_version.json"
+UPDATE_CHECK_URL = "https://www.nvict.nl/software/updates/nvict_reader_version.json"
