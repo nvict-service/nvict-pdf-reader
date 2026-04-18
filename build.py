@@ -9,8 +9,6 @@ Voorbeelden:
     python build.py --no-upload      # alleen lokaal bouwen
     python build.py --no-sign        # zonder code-signing (dev)
     python build.py --only clean,exe # alleen specifieke stappen
-
-De oude Release_Complete_v3_0.bat en *.ps1 scripts blijven beschikbaar als backup.
 """
 from __future__ import annotations
 

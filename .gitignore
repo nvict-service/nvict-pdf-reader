@@ -2,50 +2,48 @@
 # NVict Reader - .gitignore
 # ============================================================
 
-# PyInstaller build output (gegenereerd bij elke build)
+# Build output
 build/
 dist/
-
-# Inno Setup installer output
 Output/
 
-
-# Python cache
+# Python
 __pycache__/
 *.py[cod]
 *.pyo
 *.pyd
-*.spec.bak
+*.egg-info/
 
 # Virtuele omgevingen
 .venv/
 venv/
 env/
 
-# IDE-bestanden
+# Editor / OS
 .vscode/
 .idea/
-*.suo
-*.user
-
-# Windows
+.claude/
+.DS_Store
 Thumbs.db
 Desktop.ini
 ehthumbs.db
 
-# Tijdelijke bestanden
-*.tmp
-*.log
-*.bak
+# Secrets / credentials — NOOIT committen
+.env
 ftp_config.ini
-*.iss
-*.bat
-/Signing
-/.claude
-/logs
-Create_Version_JSON.ps1
-clean_registry.py
+
+# Backups / logs / tijdelijk
+*.bak
 *.backup
-Upload_FTP.ps1
-*.spec
-upload_15139.txt
+*.log
+*.tmp
+/Signing
+/logs
+
+# Gegenereerd bij build
+version_info.txt
+NVict_Reader_version.json
+
+# Inno Setup build-residu
+*.iss.backup
+*.spec.bak
