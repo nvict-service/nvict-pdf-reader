@@ -1,0 +1,35 @@
+# Metadata voor _nvict_build/release.py.
+# Zie _nvict_build/README.md voor alle beschikbare velden.
+#
+# LET OP: version.py moet in sync blijven met APP_VERSION in NVict_Reader.py
+# (beide staan op dezelfde waarde).
+
+app_id: NVictReader
+app_name: "NVict Reader"
+app_publisher: "NVict Service"
+app_url: "https://www.nvict.nl/software/NVict_Reader/"
+app_copyright: "Copyright 2026 NVict Service"
+
+# Bronbestanden
+spec_file: NVict_Reader.spec
+installer_script: NVict_Reader.iss
+release_notes: release_notes.txt
+icon: favicon.ico
+version_module: version
+
+# Output namen
+exe_name: NVict_Reader.exe
+setup_name: NVict_Reader_Setup.exe
+version_json_name: nvict_reader_version.json
+
+# FTP (zelfde server als Spotify, andere subdir)
+ftp_subdir: /NVict_Reader
+
+# Explicite URLs (kunnen ook afgeleid worden uit app_url)
+download_url: "https://www.nvict.nl/software/NVict_Reader/NVict_Reader_Setup.exe"
+update_check_url: "https://www.nvict.nl/software/NVict_Reader/updates/nvict_reader_version.json"
+
+setup_signed: true
+
+# GitHub (bestaande repo — naam moet matchen met remote)
+github_repo: nvict-pdf-reader
