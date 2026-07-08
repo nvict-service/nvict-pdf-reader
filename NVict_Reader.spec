@@ -29,19 +29,19 @@ a = Analysis(
 )
 pyz = PYZ(a.pure)
 
+# One-folder (onedir) build: de app-bestanden staan als losse map naast de exe
+# en worden NIET bij elke start uit één exe uitgepakt. Dit versnelt de opstart
+# aanzienlijk (met name de eerste PDF). De installer bundelt de hele map.
 exe = EXE(
     pyz,
     a.scripts,
-    a.binaries,
-    a.datas,
     [],
+    exclude_binaries=True,
     name='NVict_Reader',
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,
-    upx=True,
-    upx_exclude=[],
-    runtime_tmpdir=None,
+    upx=False,  # UPX uit: snellere opstart (geen DLL-decompressie) en minder antivirus-vertraging
     console=False,
     disable_windowed_traceback=False,
     argv_emulation=False,
@@ -50,4 +50,14 @@ exe = EXE(
     entitlements_file=None,
     icon=['favicon.ico'],
     version='version_info.txt',
+)
+
+coll = COLLECT(
+    exe,
+    a.binaries,
+    a.datas,
+    strip=False,
+    upx=False,
+    upx_exclude=[],
+    name='NVict_Reader',
 )

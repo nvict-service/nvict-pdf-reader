@@ -1,3 +1,17 @@
+Versie 2.4 - Wat is er nieuw?
+
+Markeringen worden nu correct opgeslagen en geprint
+  Gele markeringen (Markeermodus) gingen verloren bij Opslaan en Printen.
+  Ze worden nu correct in de opgeslagen PDF verwerkt en meegeprint.
+
+Duidelijke foutmelding bij opslaan
+  Als wijzigingen niet verwerkt kunnen worden, verschijnt nu een melding
+  in plaats van dat het origineel stilletjes zonder wijzigingen wordt opgeslagen.
+
+Veel snellere opstart
+  Het programma wordt niet meer bij elke start uit een gecomprimeerd
+  bestand uitgepakt. De eerste PDF opent hierdoor aanzienlijk sneller.
+
 Versie 2.3 - Wat is er nieuw?
 
 Tekst-annotaties verbeterd

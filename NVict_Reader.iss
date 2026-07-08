@@ -5,7 +5,7 @@
 ; Handmatig compileren kan ook: ISCC NVict_Reader.iss /DVERSION=2.3
 
 #ifndef VERSION
-  #define VERSION "2.3"
+  #define VERSION "2.4"
 #endif
 
 #define MyAppName "NVict Reader"
@@ -69,8 +69,11 @@ RestartApplications=no
 Name: "dutch"; MessagesFile: "compiler:Languages\Dutch.isl"
 
 [Files]
-; MAIN APPLICATION FILES - Relatief pad naar je al ondertekende EXE!
-Source: "dist\NVict_Reader.exe"; DestDir: "{app}"; DestName: "NVict Reader.exe"; Flags: ignoreversion
+; MAIN APPLICATION - one-folder (onedir) build.
+; De hoofd-exe wordt hernoemd naar "NVict Reader.exe" (met spatie); de rest van
+; de PyInstaller-map (incl. _internal met alle DLL's/data) gaat mee zoals hij is.
+Source: "dist\NVict_Reader\NVict_Reader.exe"; DestDir: "{app}"; DestName: "NVict Reader.exe"; Flags: ignoreversion
+Source: "dist\NVict_Reader\*"; DestDir: "{app}"; Excludes: "NVict_Reader.exe"; Flags: ignoreversion recursesubdirs createallsubdirs
 
 ; ICONEN
 Source: "favicon.ico"; DestDir: "{app}"; Flags: ignoreversion
