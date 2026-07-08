@@ -1,8 +1,8 @@
 # Auto-generated door _nvict_build — NIET handmatig bewerken
 VSVersionInfo(
   ffi=FixedFileInfo(
-    filevers=(2, 3, 0, 0),
-    prodvers=(2, 3, 0, 0),
+    filevers=(2, 4, 0, 0),
+    prodvers=(2, 4, 0, 0),
     mask=0x3f,
     flags=0x0,
     OS=0x40004,
@@ -17,12 +17,12 @@ VSVersionInfo(
         [
           StringStruct(u'CompanyName',      u'NVict Service'),
           StringStruct(u'FileDescription',  u'NVict Reader'),
-          StringStruct(u'FileVersion',      u'2.3.0.0'),
+          StringStruct(u'FileVersion',      u'2.4.0.0'),
           StringStruct(u'InternalName',     u'NVictReader'),
           StringStruct(u'LegalCopyright',   u'Copyright 2026 NVict Service'),
           StringStruct(u'OriginalFilename', u'NVict_Reader.exe'),
           StringStruct(u'ProductName',      u'NVict Reader'),
-          StringStruct(u'ProductVersion',   u'2.3.0.0'),
+          StringStruct(u'ProductVersion',   u'2.4.0.0'),
         ]
       )
     ]),
