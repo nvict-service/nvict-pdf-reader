@@ -4,10 +4,20 @@ NVict Reader is een snelle en gebruiksvriendelijke PDF-lezer met ondersteuning v
 
 ---
 
-## 🛡️ Veiligheid & Vertrouwen
-**NVict Reader is digitaal ondertekend.** Dit betekent dat de software is geverifieerd en de integriteit van het bestand is gewaarborgd. Een digitale handtekening garandeert dat de code niet is aangepast door derden en voorkomt onnodige waarschuwingen van Windows SmartScreen bij het opstarten.
+## 🚀 Nieuw in Versie 2.4
 
----
+* **Markeringen worden correct opgeslagen en geprint**: Gele markeringen (Markeermodus) gingen verloren bij Opslaan en Printen; ze worden nu correct in de opgeslagen PDF verwerkt en meegeprint.
+* **Duidelijke foutmelding bij opslaan**: Als wijzigingen niet verwerkt kunnen worden, verschijnt nu een melding in plaats van dat het origineel stilletjes zonder wijzigingen wordt opgeslagen.
+* **Veel snellere opstart**: Het programma wordt niet meer bij elke start uit een gecomprimeerd bestand uitgepakt, waardoor de eerste PDF aanzienlijk sneller opent.
+
+## 🚀 Nieuw in Versie 2.3
+
+* **Tekst-annotaties verbeterd**: Keuze uit Helvetica, Times Roman of Courier; tekst verplaatsen via het rechtsklikmenu; nauwkeurige plaatsing met I-beam cursor; geen witte achtergrond meer achter geplaatste tekst.
+* **Printen met wijzigingen**: Bij het printen wordt gevraagd of onopgeslagen wijzigingen (annotaties, markeringen, formuliervelden) meegeprint moeten worden.
+* **Opslaan bij afsluiten**: Bij het sluiten van de app wordt gevraagd of onopgeslagen wijzigingen bewaard moeten worden — voor alle geopende tabbladen.
+* **Scrollbare werkbalk**: Op kleinere schermen is de werkbalk horizontaal scrollbaar met pijlknoppen en muiswiel.
+* **Drag-and-drop stabiel**: Bestanden slepen naar het venster veroorzaakt geen crash meer; achtergrondtaken zijn volledig thread-safe.
+* **Standaard PDF-handler**: Geen onnodige melding meer wanneer NVict Reader al als standaard is ingesteld.
 
 ## 🚀 Nieuw in Versie 2.2
 
