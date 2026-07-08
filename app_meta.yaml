@@ -19,6 +19,8 @@ version_module: version
 
 # Output namen
 exe_name: NVict_Reader.exe
+# One-folder (onedir) build: PyInstaller zet de exe in dist/NVict_Reader/
+exe_subdir: NVict_Reader
 setup_name: NVict_Reader_Setup.exe
 version_json_name: nvict_reader_version.json
 

@@ -30,7 +30,7 @@ import socket
 import time
 
 # Applicatie versie
-APP_VERSION = "2.3"
+APP_VERSION = "2.4"
 UPDATE_CHECK_URL = "https://www.nvict.nl/software/updates/nvict_reader_version.json"
 
 # ====================================================================
@@ -559,6 +559,10 @@ class PDFTab(tk.Frame):
         self.text_annotate_mode = False  # Tekst-annotatiemodus aan/uit
         self.text_annotations = []       # [(page_num, pdf_x, pdf_y, text, font_size), ...]
         self.text_annot_widgets = []     # Actieve canvas overlay widgets
+
+        # Gele markeringen (highlights) — bijgehouden zodat ze bij opslaan/printen
+        # worden meegenomen. [{"page_num": int, "quads": [fitz.Quad, ...]}, ...]
+        self.highlight_annotations = []
 
     def _detect_signatures(self):
         """Detecteer of het PDF digitaal ondertekend is"""
@@ -3701,7 +3705,18 @@ class NVictReader:
             doc.close()
             return tmp_path
         except Exception as e:
+            # Niet stil falen: anders kopieert/print de aanroeper het origineel
+            # zonder wijzigingen terwijl de gebruiker denkt dat alles bewaard is.
             print(f"Error building modified PDF: {e}")
+            try:
+                messagebox.showerror(
+                    "Wijzigingen niet verwerkt",
+                    "De wijzigingen konden niet in de PDF worden verwerkt.\n\n"
+                    f"Details: {e}\n\n"
+                    "Het originele document is niet aangepast."
+                )
+            except Exception:
+                pass
             return None
 
     def send_pdf(self):
@@ -6018,8 +6033,20 @@ class NVictReader:
                     annot.set_colors(stroke=(1.0, 0.85, 0.0))  # geel
                     annot.update()
 
+                    # Registreer de markering zodat ze bij Opslaan/Printen wordt
+                    # meegenomen. _build_modified_pdf heropent het bestand vers
+                    # vanaf schijf, dus zonder deze registratie gaat de markering
+                    # verloren.
+                    if not hasattr(tab, 'highlight_annotations'):
+                        tab.highlight_annotations = []
+                    tab.highlight_annotations.append({
+                        "page_num": page_num,
+                        "quads": quads,
+                    })
+
             # Herrender om annotaties direct te tonen
             self.display_page(tab)
+            self._update_save_button_state()
             self.status_label.config(
                 text=f"✅ Markering toegevoegd ({total_words} woorden). Sla op met Ctrl+S."
             )
