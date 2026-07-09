@@ -3676,13 +3676,14 @@ class NVictReader:
                                  pdf_x + approx_width + 10,
                                  pdf_y + approx_height + 5)
                 fontname = annot.get("fontname", "helv")
+                # fill_color/border_color=None -> transparante achtergrond zonder rand.
+                # (set_colors() achteraf gooit in PyMuPDF 1.27+ een fout voor FreeText.)
                 annot_obj = page.add_freetext_annot(
                     rect, text,
                     fontsize=font_size, fontname=fontname,
                     text_color=color,
+                    fill_color=None, border_color=None, border_width=0,
                 )
-                # Verwijder achtergrondkleur en rand voor transparante weergave
-                annot_obj.set_colors(fill=None, stroke=None)
                 annot_obj.update()
 
             # 3. Highlight-markeringen toevoegen
@@ -4668,14 +4669,15 @@ class NVictReader:
                                 pdf_y + approx_height + 5)
 
                 fontname = annot.get("fontname", "helv")
+                # fill_color/border_color=None -> transparante achtergrond zonder rand.
+                # (set_colors() achteraf gooit in PyMuPDF 1.27+ een fout voor FreeText.)
                 annot_obj = page.add_freetext_annot(
                     rect, text,
                     fontsize=font_size,
                     fontname=fontname,
                     text_color=color,
+                    fill_color=None, border_color=None, border_width=0,
                 )
-                # Verwijder achtergrondkleur en rand voor transparante weergave
-                annot_obj.set_colors(fill=None, stroke=None)
                 annot_obj.update()
 
             doc.save(save_path)
