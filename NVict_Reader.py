@@ -33,6 +33,60 @@ import time
 APP_VERSION = "2.4"
 UPDATE_CHECK_URL = "https://www.nvict.nl/software/updates/nvict_reader_version.json"
 
+# ── Beveiliging ─────────────────────────────────────────────────────────────
+# Schemes die we uit een PDF-link mogen doorgeven aan de browser. Alles daar
+# buiten (file:, ms-msdt:, javascript:, een UNC-pad, ...) wordt op Windows door
+# de shell uitgevoerd en zou een kwaadaardige PDF een startknop geven.
+ALLOWED_LINK_SCHEMES = ("http", "https", "mailto")
+
+# Updates mogen uitsluitend van onze eigen site komen. De download-URL staat in
+# een JSON-bestand op de server; zonder deze controle zou een aangepaste of
+# onderschepte JSON de installer van een willekeurige host kunnen halen.
+UPDATE_ALLOWED_HOSTS = ("www.nvict.nl", "nvict.nl")
+
+
+def is_safe_link_url(url):
+    """Bepaal of een URL uit een PDF veilig aan de browser doorgegeven mag worden."""
+    if not url or not isinstance(url, str):
+        return False
+    # Regeleindes/tabs kunnen gebruikt worden om de weergegeven URL te vervalsen
+    if any(c in url for c in ("\n", "\r", "\t", "\x00")):
+        return False
+    try:
+        import urllib.parse
+        scheme = urllib.parse.urlparse(url).scheme.lower()
+    except Exception:
+        return False
+    if scheme not in ALLOWED_LINK_SCHEMES:
+        return False
+    # "http:evil.exe" o.i.d. zonder net-locatie afwijzen (mailto heeft er geen)
+    if scheme in ("http", "https") and not url.lower().startswith(scheme + "://"):
+        return False
+    return True
+
+
+def is_trusted_update_url(url):
+    """Bepaal of een download-URL voor een update van onze eigen server komt."""
+    if not url or not isinstance(url, str):
+        return False
+    try:
+        import urllib.parse
+        parts = urllib.parse.urlparse(url)
+    except Exception:
+        return False
+    # Alleen https: anders kan een man-in-the-middle de installer vervangen
+    if parts.scheme.lower() != "https":
+        return False
+    return parts.hostname is not None and parts.hostname.lower() in UPDATE_ALLOWED_HOSTS
+
+
+def shorten_for_display(text, limit=180):
+    """Kort tekst in voor weergave in een dialoog met een vaste hoogte."""
+    text = "".join(ch for ch in str(text) if ch.isprintable())
+    if len(text) > limit:
+        return text[:limit] + "\u2026"
+    return text
+
 # ====================================================================
 # LAZY IMPORTS - Heavy modules loaded only when needed
 # ====================================================================
@@ -2541,7 +2595,9 @@ class NVictReader:
         
         url_label = tk.Label(
             url_frame, 
-            text=url,
+            # Afgekapt weergeven: het dialoogvenster heeft een vaste hoogte, en
+            # een extreem lange URL zou de Ja/Nee-knoppen buiten beeld duwen.
+            text=shorten_for_display(url),
             font=("Segoe UI", 9),
             bg=self.theme["BG_SECONDARY"],
             fg=self.theme["TEXT_PRIMARY"],
@@ -2614,10 +2670,11 @@ class NVictReader:
         )
         no_button.pack(side="left", padx=10)
         
-        # Enter key voor Ja, Escape voor Nee
-        dialog.bind("<Return>", lambda e: on_yes())
+        # Enter en Escape kiezen allebei de veilige optie. De focus ligt op
+        # "Nee", dus een gebruiker die routineus op Enter drukt opent niets.
+        dialog.bind("<Return>", lambda e: on_no())
         dialog.bind("<Escape>", lambda e: on_no())
-        
+
         # Focus op Nee button (veiliger default)
         no_button.focus_set()
         
@@ -2631,6 +2688,22 @@ class NVictReader:
         # Externe link (URI)
         if link_data['uri']:
             url = link_data['uri']
+
+            # Alleen web- en mailadressen doorgeven. Een PDF mag zelf bepalen
+            # wat er in een link staat; zonder deze controle kan file:// of een
+            # UNC-pad een programma starten zodra de gebruiker op Ja klikt.
+            if not is_safe_link_url(url):
+                messagebox.showwarning(
+                    "Link geblokkeerd",
+                    "Deze link is niet geopend omdat het geen gewone web- of "
+                    "e-mailkoppeling is.\n\n"
+                    f"Link: {shorten_for_display(url)}\n\n"
+                    "Dit soort koppelingen kan een programma op uw computer "
+                    "starten. Alleen http, https en mailto worden toegestaan."
+                )
+                self.status_label.config(text="Link geblokkeerd (onveilig type)")
+                return
+
             # Toon waarschuwing
             if self.show_link_warning(url):
                 try:
@@ -5743,14 +5816,40 @@ class NVictReader:
             with urllib.request.urlopen(UPDATE_CHECK_URL, timeout=5) as response:
                 data = json.loads(response.read().decode('utf-8'))
                 
-                latest_version = data.get("version", "0.0")
+                latest_version = str(data.get("version", "0.0"))
                 download_url = data.get("download_url", "")
                 release_notes = data.get("release_notes", "")
-                
-                # Vergelijk versies
-                current_parts = [int(x) for x in APP_VERSION.split('.')]
-                latest_parts = [int(x) for x in latest_version.split('.')]
-                
+                # Optionele SHA-256 van de installer; als de server die meegeeft
+                # controleren we de download voordat we hem uitvoeren.
+                expected_sha256 = data.get("sha256", "")
+
+                # De download-URL komt van de server: nooit blind vertrouwen.
+                if download_url and not is_trusted_update_url(download_url):
+                    print(f"[Update] Download-URL geweigerd: {download_url}")
+                    if not silent:
+                        messagebox.showerror(
+                            "Update geweigerd",
+                            "De update-informatie verwijst naar een adres buiten "
+                            "www.nvict.nl en is daarom genegeerd.\n\n"
+                            "Download de update via de website."
+                        )
+                    return
+
+                # Vergelijk versies (niet-numerieke delen negeren, bv. "2.4.1b")
+                def _version_parts(text):
+                    parts = []
+                    for chunk in str(text).split('.'):
+                        digits = ""
+                        for ch in chunk:
+                            if not ch.isdigit():
+                                break
+                            digits += ch
+                        parts.append(int(digits) if digits else 0)
+                    return parts
+
+                current_parts = _version_parts(APP_VERSION)
+                latest_parts = _version_parts(latest_version)
+
                 # Pad version parts als ze verschillende lengtes hebben
                 max_length = max(len(current_parts), len(latest_parts))
                 current_parts += [0] * (max_length - len(current_parts))
@@ -5759,7 +5858,8 @@ class NVictReader:
                 update_available = latest_parts > current_parts
                 
                 if update_available:
-                    self.show_update_dialog(latest_version, download_url, release_notes)
+                    self.show_update_dialog(latest_version, download_url,
+                                            release_notes, expected_sha256)
                 else:
                     if not silent:
                         messagebox.showinfo("Geen updates", 
@@ -5775,7 +5875,8 @@ class NVictReader:
                 messagebox.showerror("Fout", 
                     f"Fout bij controleren op updates:\n{str(e)}")
 
-    def show_update_dialog(self, new_version, download_url, release_notes):
+    def show_update_dialog(self, new_version, download_url, release_notes,
+                           expected_sha256=""):
         """Toon dialoog met update informatie en automatische download/installatie optie"""
         dialog = tk.Toplevel(self.root)
         dialog.title("Update Beschikbaar")
@@ -5867,11 +5968,12 @@ class NVictReader:
             """Download update en start installatie automatisch"""
             if download_url:
                 dialog.destroy()
-                self.download_and_install_update(download_url, new_version)
-        
+                self.download_and_install_update(download_url, new_version,
+                                                 expected_sha256)
+
         def download_only():
             """Open alleen de download pagina in browser"""
-            if download_url:
+            if download_url and is_trusted_update_url(download_url):
                 webbrowser.open(download_url)
                 dialog.destroy()
         
@@ -5890,8 +5992,18 @@ class NVictReader:
                  font=("Segoe UI", 10), padx=20, pady=10,
                  relief="flat", cursor="hand2").pack(side=tk.LEFT, padx=3)
     
-    def download_and_install_update(self, download_url, version):
+    def download_and_install_update(self, download_url, version, expected_sha256=""):
         """Download update en start installatie automatisch"""
+        # Dubbele controle: deze methode voert straks een .exe uit, dus we
+        # vertrouwen niet op de aanroeper dat de URL al gecontroleerd is.
+        if not is_trusted_update_url(download_url):
+            messagebox.showerror(
+                "Update geweigerd",
+                "De update kan niet worden gedownload omdat het adres niet van "
+                "www.nvict.nl komt.\n\nDownload de update via de website."
+            )
+            return
+
         try:
             # Toon voortgang dialoog
             progress_dialog = tk.Toplevel(self.root)
@@ -5924,17 +6036,36 @@ class NVictReader:
             # Download in achtergrond thread
             def download_thread():
                 try:
-                    # Download naar temp directory
-                    temp_dir = tempfile.gettempdir()
+                    # Eigen, verse map: een vast pad in %TEMP% is voorspelbaar
+                    # en zou door een ander proces vooraf klaargezet kunnen zijn.
+                    temp_dir = tempfile.mkdtemp(prefix="NVictReader_update_")
                     filename = f"NVict_Reader_v{version}_Setup.exe"
                     filepath = os.path.join(temp_dir, filename)
-                    
+
                     # Download bestand
                     urllib.request.urlretrieve(download_url, filepath)
-                    
+
+                    # Controleer de hash voordat we iets uitvoeren
+                    if expected_sha256:
+                        import hashlib
+                        digest = hashlib.sha256()
+                        with open(filepath, 'rb') as fh:
+                            for chunk in iter(lambda: fh.read(1024 * 1024), b''):
+                                digest.update(chunk)
+                        actual = digest.hexdigest()
+                        if actual.lower() != str(expected_sha256).strip().lower():
+                            try:
+                                os.remove(filepath)
+                            except OSError:
+                                pass
+                            raise ValueError(
+                                "De controlesom van het gedownloade bestand klopt "
+                                "niet. De download is verwijderd en niet gestart."
+                            )
+
                     # Update UI in main thread
                     self.root.after(0, lambda: self._finish_download(progress_dialog, filepath))
-                    
+
                 except Exception as e:
                     # str(e) nu vastleggen: 'e' is weg zodra dit except-blok
                     # eindigt, en de lambda draait pas later op de main thread.
