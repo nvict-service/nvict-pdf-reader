@@ -578,6 +578,9 @@ class PDFTab(tk.Frame):
         v_scrollbar = ttk.Scrollbar(self, orient=tk.VERTICAL, command=self.canvas.yview)
         h_scrollbar = ttk.Scrollbar(self, orient=tk.HORIZONTAL, command=self.canvas.xview)
         self.canvas.configure(yscrollcommand=v_scrollbar.set, xscrollcommand=h_scrollbar.set)
+        # Bewaard zodat NVictReader de yscrollcommand-hook kan plaatsen die bij
+        # het scrollen de nieuw zichtbare pagina's laat renderen.
+        self.v_scrollbar = v_scrollbar
         
         v_scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
         h_scrollbar.pack(side=tk.BOTTOM, fill=tk.X)
@@ -595,9 +598,20 @@ class PDFTab(tk.Frame):
         self.highlighted_image = None
         self.page_offset_x = 0
         self.page_offset_y = 0
-        self.page_images = []  # Voor continuous scroll
-        self.page_pil_images = {}  # PIL images voor elke pagina (voor highlighting)
+        self.page_images = {}  # {page_num: PhotoImage} van de getekende pagina's
+        self.page_pil_images = {}  # {page_num: PIL image}, begrensde cache
         self.page_positions = []  # Y-positie van elke pagina
+
+        # Thumbnails: één keer renderen per document, daarna hergebruiken
+        self.thumbnail_items = None
+        self.thumbnail_total_y = 0
+        self._thumbnail_thread_busy = False
+
+        # Virtualisatie-state (zie NVictReader._render_visible_pages)
+        self.page_layout = []            # [(page_num, x, y, breedte, hoogte), ...]
+        self.page_spacing = 20
+        self._rendered_pages = None      # welke pagina's nu getekend zijn
+        self._scroll_render_after_id = None
         self.scroll_to_page = None  # Flag voor initiële scroll
 
         # Links (nieuw voor hyperlinks)
@@ -1946,12 +1960,21 @@ class NVictReader:
             tab = PDFTab(self.notebook, file_path, self.theme, getattr(self, 'temp_password', None))
             self.notebook.add(tab, text=os.path.basename(file_path), padding=5)
             self.notebook.select(tab)
+
+            # Scrollen moet nieuw zichtbaar geworden pagina's laten renderen.
+            # Vóór de eerste display_page instellen, zodat elke scrollbeweging
+            # vanaf het begin een render kan uitlokken.
+            tab.canvas.configure(
+                yscrollcommand=lambda first, last, t=tab: self._on_canvas_scroll(
+                    t, t.v_scrollbar, first, last)
+            )
+
             self.display_page(tab)
             # Voeg toe aan recente bestanden
             self.add_to_recent_files(file_path)
             # Thumbnails bijwerken (na korte vertraging zodat canvas op orde is)
             self.root.after(200, self.update_thumbnails)
-            
+
             # Bind events
             tab.canvas.bind("<Configure>", lambda e, t=tab: self.on_resize(e, t))
             tab.canvas.bind("<Button-1>", lambda e, t=tab: self.on_click(e, t))
@@ -2103,25 +2126,26 @@ class NVictReader:
 
         tab._resize_after_id = self.root.after(200, do_resize)
 
-    def display_page(self, tab):
-        if not tab or not tab.pdf_document:
-            return
+    # ── Renderen ────────────────────────────────────────────────────────
+    #
+    # Het document wordt gevirtualiseerd getekend: de indeling (posities en
+    # afmetingen van alle pagina's) wordt altijd volledig berekend, want dat
+    # kost alleen page.bound() en de rest van de app rekent erop dat
+    # page_positions/page_regions voor élke pagina gevuld zijn. Het dure werk —
+    # get_pixmap() naar een bitmap, plus tekst- en link-extractie — gebeurt
+    # uitsluitend voor de pagina's die daadwerkelijk in beeld staan.
 
-        fitz = get_fitz()
-        Image, ImageTk, _, _ = get_PIL()
+    RENDER_MARGIN_PAGES = 1   # extra pagina's boven en onder het beeld
+    RENDER_CACHE_PAGES = 12   # maximaal aantal bitmaps dat we vasthouden
 
-        # ── Clear ──
-        tab.canvas.delete("all")
-        tab.text_words = []
-        tab.selected_text = ""
-        tab.links = []
-        tab.page_regions = {}
-        book_mode   = getattr(tab, 'book_mode', False)
-        page_gap    = 12   # horizontale ruimte tussen pagina's in boek-modus
-        x_margin    = 20
-        y_start     = 20
+    def _compute_page_layout(self, tab):
+        """Bereken zoom, pagina-posities en scrollregio zonder iets te renderen."""
+        page_gap = 12      # horizontale ruimte tussen pagina's in boek-modus
+        x_margin = 20
+        y_start = 20
         page_spacing = 20
 
+        book_mode = getattr(tab, 'book_mode', False)
         n = len(tab.pdf_document)
 
         # ── Zoom berekening ──
@@ -2137,82 +2161,137 @@ class NVictReader:
                 if page_width > 0:
                     tab.zoom_level = canvas_width / page_width
 
-        # ── Bereken pagina-layout: (page_num, x, y) per pagina ──
-        page_layout = []   # [(page_num, x_offset, y_offset), ...]
-        tab.page_positions = []  # index == page_num → y canvas positie
+        # ── Pagina-layout: (page_num, x, y, breedte, hoogte) per pagina ──
+        layout = []
+        tab.page_positions = []   # index == page_num → y canvas positie
+        tab.page_regions = {}     # page_num → (x0, y0, x1, y1) op canvas
+
+        def add(page_num, x, y):
+            bound = tab.pdf_document[page_num].bound()
+            w = int(bound.width * tab.zoom_level)
+            h = int(bound.height * tab.zoom_level)
+            layout.append((page_num, x, y, w, h))
+            tab.page_positions.append(y)
+            tab.page_regions[page_num] = (x, y, x + w, y + h)
+            return w, h
 
         if book_mode:
             y = y_start
             p = 0
             while p < n:
-                left_num  = p
-                right_num = p + 1 if p + 1 < n else None
-                left_h  = tab.pdf_document[left_num].bound().height  * tab.zoom_level
-                left_w  = tab.pdf_document[left_num].bound().width   * tab.zoom_level
-                right_h = tab.pdf_document[right_num].bound().height * tab.zoom_level if right_num is not None else 0
-                row_height = max(left_h, right_h)
-
-                page_layout.append((left_num, x_margin, y))
-                tab.page_positions.append(y)
-
-                if right_num is not None:
-                    rx = x_margin + int(left_w) + page_gap
-                    page_layout.append((right_num, rx, y))
-                    tab.page_positions.append(y)
+                left_w, left_h = add(p, x_margin, y)
+                right_h = 0
+                if p + 1 < n:
+                    _, right_h = add(p + 1, x_margin + left_w + page_gap, y)
                     p += 2
                 else:
                     p += 1
-
-                y += int(row_height) + page_spacing
+                y += int(max(left_h, right_h)) + page_spacing
             total_y = y
         else:
             y = y_start
             for page_num in range(n):
-                page_layout.append((page_num, x_margin, y))
-                tab.page_positions.append(y)
-                ph = tab.pdf_document[page_num].bound().height * tab.zoom_level
-                y += int(ph) + page_spacing
+                _, h = add(page_num, x_margin, y)
+                y += h + page_spacing
             total_y = y
 
-        # ── Initialiseer page_images ──
-        if not hasattr(tab, 'page_pil_images'):
-            tab.page_pil_images = {}
-        if not hasattr(tab, 'page_images'):
-            tab.page_images = []
-        # Zorg dat de lijst lang genoeg is
-        while len(tab.page_images) < n:
-            tab.page_images.append(None)
+        tab.page_layout = layout
+        tab.page_spacing = page_spacing
 
-        # ── Render elke pagina ──
-        for (page_num, x_offset, y_offset) in page_layout:
+        # ── Scrollregion ──
+        max_width = max((r[2] for r in tab.page_regions.values()), default=400) + x_margin
+        tab.canvas.configure(scrollregion=(0, 0, max_width, total_y + 20))
+
+    def _visible_page_numbers(self, tab):
+        """Geef de pagina's terug die in beeld staan, plus een marge."""
+        layout = getattr(tab, 'page_layout', [])
+        if not layout:
+            return []
+
+        canvas_height = tab.canvas.winfo_height()
+        if canvas_height <= 1:
+            # Canvas is nog niet uitgetekend: toon in elk geval de eerste
+            # pagina's, anders blijft het scherm leeg tot de eerste scroll.
+            visible_idx = list(range(min(len(layout), 2 * self.RENDER_MARGIN_PAGES + 1)))
+        else:
+            top = tab.canvas.canvasy(0)
+            bottom = top + canvas_height
+            visible_idx = [
+                i for i, (_pn, _x, y, _w, h) in enumerate(layout)
+                if y <= bottom and (y + h) >= top
+            ]
+            if not visible_idx:
+                # Buiten elk bereik (bv. net na een zoomwissel): val terug op
+                # de pagina waar de gebruiker naartoe navigeerde.
+                current = min(max(tab.current_page, 0), len(layout) - 1)
+                visible_idx = [
+                    i for i, entry in enumerate(layout) if entry[0] == current
+                ] or [0]
+
+        first = max(0, min(visible_idx) - self.RENDER_MARGIN_PAGES)
+        last = min(len(layout) - 1, max(visible_idx) + self.RENDER_MARGIN_PAGES)
+        return [layout[i][0] for i in range(first, last + 1)]
+
+    def _render_visible_pages(self, tab, force=False):
+        """Teken de pagina's die in beeld staan; laat de rest ongerenderd.
+
+        Doet niets als exact dezelfde pagina's al getekend zijn, zodat scrollen
+        binnen het al gerenderde venster geen werk kost.
+        """
+        if not tab or not tab.pdf_document:
+            return
+
+        wanted = self._visible_page_numbers(tab)
+        if not force and wanted == getattr(tab, '_rendered_pages', None):
+            return
+
+        fitz = get_fitz()
+        Image, ImageTk, _, _ = get_PIL()
+
+        layout_by_page = {entry[0]: entry for entry in getattr(tab, 'page_layout', [])}
+        n = len(tab.pdf_document)
+        page_spacing = getattr(tab, 'page_spacing', 20)
+
+        # Alles wat bij pagina's hoort weghalen; overlays (formulier,
+        # annotaties) worden verderop opnieuw opgebouwd.
+        tab.canvas.delete("pagelayer")
+
+        tab.text_words = []
+        tab.links = []
+        tab.page_images = {}
+
+        for page_num in wanted:
+            entry = layout_by_page.get(page_num)
+            if entry is None:
+                continue
+            _pn, x_offset, y_offset, img_width, img_height = entry
             page = tab.pdf_document[page_num]
-            mat  = fitz.Matrix(tab.zoom_level, tab.zoom_level)
-            pix  = page.get_pixmap(matrix=mat)
-            pil_image = Image.open(io.BytesIO(pix.tobytes("ppm")))
-            img_width, img_height = pil_image.size
 
-            # Bewaar voor highlights / navigatie
+            pil_image = tab.page_pil_images.get(page_num)
+            if pil_image is None:
+                mat = fitz.Matrix(tab.zoom_level, tab.zoom_level)
+                pix = page.get_pixmap(matrix=mat)
+                pil_image = Image.open(io.BytesIO(pix.tobytes("ppm")))
+                tab.page_pil_images[page_num] = pil_image
+
             if page_num == tab.current_page:
-                tab.current_image  = pil_image.copy()
-                tab.page_offset_x  = x_offset
-                tab.page_offset_y  = y_offset
-            tab.page_pil_images[page_num] = pil_image.copy()
-            tab.page_regions[page_num]    = (x_offset, y_offset,
-                                              x_offset + img_width,
-                                              y_offset + img_height)
+                tab.current_image = pil_image
+                tab.page_offset_x = x_offset
+                tab.page_offset_y = y_offset
 
             photo = ImageTk.PhotoImage(pil_image)
             tab.page_images[page_num] = photo
 
             # Teken pagina
             tab.canvas.create_image(x_offset, y_offset, anchor="nw",
-                                    image=photo, tags=f"page_{page_num}")
+                                    image=photo, tags=("pagelayer", f"page_{page_num}"))
 
             # Paginanummer label
             tab.canvas.create_text(
                 x_offset + img_width // 2, y_offset - 5,
                 text=f"Pagina {page_num + 1} / {n}",
-                font=("Segoe UI", 9), fill=self.theme["TEXT_SECONDARY"]
+                font=("Segoe UI", 9), fill=self.theme["TEXT_SECONDARY"],
+                tags="pagelayer"
             )
 
             # Extract tekst
@@ -2247,24 +2326,12 @@ class NVictReader:
             sep_y = y_offset + img_height + page_spacing // 2
             tab.canvas.create_line(
                 x_offset, sep_y, x_offset + img_width, sep_y,
-                fill=self.theme["TEXT_SECONDARY"], width=1, dash=(2, 4)
+                fill=self.theme["TEXT_SECONDARY"], width=1, dash=(2, 4),
+                tags="pagelayer"
             )
 
-        # ── Scrollregion ──
-        max_width = max(
-            (tab.page_regions[p][2] for p in tab.page_regions),
-            default=400
-        ) + x_margin
-        tab.canvas.configure(scrollregion=(0, 0, max_width, total_y + 20))
-
-        # ── Navigeer naar gewenste pagina ──
-        if hasattr(tab, 'scroll_to_page') and tab.scroll_to_page is not None:
-            self.scroll_to_page(tab, tab.scroll_to_page)
-            tab.scroll_to_page = None
-
-        self.update_ui_state()
-        # Thumbnails bijwerken na render (actuele pagina markeren)
-        self.root.after(50, self.update_thumbnails)
+        tab._rendered_pages = list(wanted)
+        self._trim_page_cache(tab, wanted)
 
         # Formuliervelden: teken lichtblauwe markeringen als er velden zijn
         if hasattr(tab, 'form_mode'):
@@ -2278,6 +2345,80 @@ class NVictReader:
         if hasattr(tab, 'text_annotations') and tab.text_annotations:
             self._draw_text_annotations(tab)
 
+    def _trim_page_cache(self, tab, keep):
+        """Gooi bitmaps weg van pagina's die ver buiten beeld liggen.
+
+        Zonder deze begrenzing groeit het geheugengebruik bij het doorbladeren
+        van een lang document ongelimiteerd: elke gerenderde pagina is een
+        volledige bitmap op zoomniveau.
+        """
+        cache = tab.page_pil_images
+        if len(cache) <= self.RENDER_CACHE_PAGES:
+            return
+        keep_set = set(keep)
+        # Bewaar de pagina's in beeld, en daarna de dichtstbijzijnde
+        anchor = keep[0] if keep else tab.current_page
+        for page_num in sorted(cache.keys(), key=lambda p: -abs(p - anchor)):
+            if len(cache) <= self.RENDER_CACHE_PAGES:
+                break
+            if page_num not in keep_set:
+                cache.pop(page_num, None)
+
+    def _on_canvas_scroll(self, tab, scrollbar, first, last):
+        """yscrollcommand-hook: houd de scrollbar bij én render bijgescrolde pagina's."""
+        scrollbar.set(first, last)
+        if getattr(tab, '_scroll_render_after_id', None) is not None:
+            try:
+                self.root.after_cancel(tab._scroll_render_after_id)
+            except Exception:
+                pass
+
+        def do_render():
+            tab._scroll_render_after_id = None
+            try:
+                if not tab.winfo_exists() or not tab.pdf_document:
+                    return
+            except tk.TclError:
+                return
+            self._render_visible_pages(tab)
+
+        # Korte vertraging: tijdens een vloeiende scroll niet bij elke stap
+        # renderen, maar wel snel genoeg om niet in beeld te blijven hangen.
+        try:
+            tab._scroll_render_after_id = self.root.after(60, do_render)
+        except tk.TclError:
+            tab._scroll_render_after_id = None
+
+    def display_page(self, tab):
+        """(Her)bouw de weergave van het document volledig op."""
+        if not tab or not tab.pdf_document:
+            return
+
+        # ── Clear ──
+        tab.canvas.delete("all")
+        tab.text_words = []
+        tab.selected_text = ""
+        tab.links = []
+
+        # Bij een volledige herbouw zijn de oude bitmaps op de verkeerde zoom
+        # gerenderd; weggooien zodat ze opnieuw gemaakt worden.
+        tab.page_pil_images = {}
+        tab.page_images = {}
+        tab._rendered_pages = None
+
+        self._compute_page_layout(tab)
+
+        # ── Navigeer naar gewenste pagina (vóór het renderen, zodat meteen de
+        #    juiste pagina's getekend worden) ──
+        if getattr(tab, 'scroll_to_page', None) is not None:
+            self.scroll_to_page(tab, tab.scroll_to_page)
+            tab.scroll_to_page = None
+
+        self._render_visible_pages(tab, force=True)
+
+        self.update_ui_state()
+        # Thumbnails bijwerken na render (actuele pagina markeren)
+        self.root.after(50, self.update_thumbnails)
     def scroll_to_page(self, tab, page_num):
         """Scroll naar een specifieke pagina"""
         if not hasattr(tab, 'page_positions') or page_num >= len(tab.page_positions):
@@ -2316,21 +2457,27 @@ class NVictReader:
         # Herstel alle originele pagina afbeeldingen (verwijder highlighting)
         if hasattr(tab, 'page_pil_images') and hasattr(tab, 'page_positions'):
             Image, ImageTk, ImageOps, ImageDraw = get_PIL()  # Lazy load PIL
-            for page_num in tab.page_pil_images.keys():
+            for page_num in list(tab.page_pil_images.keys()):
+                # Alleen pagina's die ook echt op het canvas staan
+                if page_num not in tab.page_images:
+                    continue
+                if page_num not in tab.page_regions:
+                    continue
                 original_image = tab.page_pil_images[page_num]
                 photo = ImageTk.PhotoImage(original_image)
-                
+
                 # Bewaar photo reference
-                if len(tab.page_images) > page_num:
-                    tab.page_images[page_num] = photo
-                
-                # Update de afbeelding op canvas
-                page_y_offset = tab.page_positions[page_num]
-                page_x_offset = tab.page_offset_x
-                
+                tab.page_images[page_num] = photo
+
+                # Update de afbeelding op canvas. page_regions geeft de eigen
+                # positie van deze pagina; page_offset_x gold alleen voor de
+                # huidige pagina en zette in boek-modus de rechterpagina links.
+                page_x_offset, page_y_offset = tab.page_regions[page_num][:2]
+
                 tab.canvas.delete(f"page_{page_num}")
-                tab.canvas.create_image(page_x_offset, page_y_offset, 
-                                       anchor="nw", image=photo, tags=f"page_{page_num}")
+                tab.canvas.create_image(page_x_offset, page_y_offset,
+                                       anchor="nw", image=photo,
+                                       tags=("pagelayer", f"page_{page_num}"))
         
         # Breng annotaties en form highlights terug naar de voorgrond
         tab.canvas.tag_raise("form_highlight")
@@ -2480,11 +2627,11 @@ class NVictReader:
                     )
 
                 photo = ImageTk.PhotoImage(highlighted)
-                if len(tab.page_images) > page_num:
-                    tab.page_images[page_num] = photo
+                tab.page_images[page_num] = photo
                 tab.canvas.delete(f"page_{page_num}")
                 tab.canvas.create_image(page_x_offset, page_y_offset,
-                                        anchor="nw", image=photo, tags=f"page_{page_num}")
+                                        anchor="nw", image=photo,
+                                        tags=("pagelayer", f"page_{page_num}"))
 
             # Verzamel tekst
             tab.selected_text = ""
@@ -2812,6 +2959,10 @@ class NVictReader:
             if instances:
                 if page_num != tab.current_page:
                     tab.current_page = page_num
+                    # Meescrollen is nu noodzakelijk: alleen pagina's in beeld
+                    # worden gerenderd, dus zonder scroll zou de treffer op een
+                    # lege plek getekend worden.
+                    tab.scroll_to_page = page_num
                     self.display_page(tab)
 
                 # Gebruik page_pil_images (multi-page) of current_image als fallback
@@ -2853,7 +3004,8 @@ class NVictReader:
 
                 tab.canvas.delete(f"page_{page_num}")
                 tab.canvas.create_image(px, py, anchor="nw",
-                                        image=photo, tags=f"page_{page_num}")
+                                        image=photo,
+                                        tags=("pagelayer", f"page_{page_num}"))
 
                 # Breng overlays terug naar voorgrond
                 tab.canvas.tag_raise("form_highlight")
@@ -6130,7 +6282,13 @@ class NVictReader:
             self.update_thumbnails()
 
     def update_thumbnails(self):
-        """Herrender thumbnails voor het actieve tabblad (in achtergrondthread)."""
+        """Werk het thumbnail-paneel bij voor het actieve tabblad.
+
+        De miniaturen hangen alleen van het document af, niet van zoom of
+        scrollpositie, dus ze worden per tabblad één keer gerenderd en daarna
+        hergebruikt. Dat scheelt veel: deze methode wordt na elke display_page
+        aangeroepen en rendert anders telkens het volledige document opnieuw.
+        """
         if not self.thumbnail_visible:
             return
         tab = self.get_active_tab()
@@ -6138,6 +6296,19 @@ class NVictReader:
             self.thumbnail_canvas.delete("all")
             self.thumbnail_images = []
             return
+
+        # Al eerder gerenderd: alleen opnieuw tekenen (markeert de actuele pagina)
+        cached = getattr(tab, 'thumbnail_items', None)
+        if cached is not None:
+            self._draw_thumbnails(tab, cached, tab.thumbnail_total_y)
+            return
+
+        # Voorkom dat meerdere aanroepen tegelijk dezelfde render starten.
+        # tab.pdf_document wordt hieronder vanuit een thread gelezen en PyMuPDF
+        # is niet thread-safe, dus er mag er maar één tegelijk lopen.
+        if getattr(tab, '_thumbnail_thread_busy', False):
+            return
+        tab._thumbnail_thread_busy = True
 
         # Render in achtergrondthread om UI niet te blokkeren
         def _render():
@@ -6159,13 +6330,31 @@ class NVictReader:
                     y += pil_img.height + 4 + 14  # thumb + gap + label
             except Exception as e:
                 print(f"Thumbnail render error: {e}")
+                tab._thumbnail_thread_busy = False
                 return
-            self.root.after(0, lambda: self._draw_thumbnails(tab, items, y))
+
+            def _finish():
+                tab._thumbnail_thread_busy = False
+                tab.thumbnail_items = items
+                tab.thumbnail_total_y = y
+                self._draw_thumbnails(tab, items, y)
+
+            # Via de thread-safe queue i.p.v. root.after vanuit een thread
+            self._thread_queue.put(_finish)
 
         threading.Thread(target=_render, daemon=True).start()
 
     def _draw_thumbnails(self, tab, items, total_y):
         """Teken thumbnails op het thumbnail-canvas (wordt aangeroepen vanuit main thread)."""
+        # Tussen render en tekenen kan de gebruiker van tabblad gewisseld zijn
+        if self.get_active_tab() is not tab:
+            return
+        try:
+            if not tab.winfo_exists():
+                return
+        except tk.TclError:
+            return
+
         Image, ImageTk, _, _ = get_PIL()
         self.thumbnail_canvas.delete("all")
         self.thumbnail_images = []
