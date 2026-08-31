@@ -4,6 +4,14 @@ NVict Reader is een snelle en gebruiksvriendelijke PDF-lezer met ondersteuning v
 
 ---
 
+## 🚀 Nieuw in Versie 2.5
+
+* **Veel sneller bij grote documenten**: Alleen de zichtbare pagina's worden nog getekend in plaats van het hele document bij elke handeling. Een PDF van 300 pagina's opent vrijwel direct; zoomen en het slepen van de vensterrand blijven vloeiend en het geheugengebruik loopt niet meer op bij doorbladeren.
+* **Opslaan meldt het nu als er iets misgaat**: Bij een fout werd het origineel opgeslagen met de melding dat alles bewaard was, waardoor annotaties en markeringen ongemerkt verloren konden gaan. Er wordt nu niets opgeslagen en je krijgt een duidelijke melding — ook bij printen en doorsturen.
+* **Zoeken springt naar het resultaat**: Het document scrolt nu mee naar de gevonden tekst.
+* **Veiliger omgaan met links**: Koppelingen in een PDF die naar een programma op je computer verwijzen worden geweigerd; alleen web- en e-mailadressen worden geopend.
+* **Veiliger bijwerken**: Updates worden alleen nog van nvict.nl via een beveiligde verbinding geaccepteerd, met controle van de gedownloade installer.
+
 ## 🚀 Nieuw in Versie 2.4
 
 * **Markeringen worden correct opgeslagen en geprint**: Gele markeringen (Markeermodus) gingen verloren bij Opslaan en Printen; ze worden nu correct in de opgeslagen PDF verwerkt en meegeprint.
@@ -78,6 +86,11 @@ NVict Reader is een snelle en gebruiksvriendelijke PDF-lezer met ondersteuning v
 ---
 
 ## 🔧 Opgeloste problemen (Bugfixes)
+* Instellingen en recente bestanden werden niet bewaard bij paden met bijzondere tekens.
+* Instellingen kunnen niet meer beschadigd raken als de computer uitvalt tijdens het opslaan.
+* Werkbalkpictogrammen worden op een veiligere manier geladen.
+* Een mislukte update-download toonde geen foutmelding.
+* In boek-modus kon de rechterpagina na een tekstselectie op de verkeerde plek terechtkomen.
 * Zoekfunctie crashte niet meer bij formulier-PDF's.
 * Tekst-annotaties verdwijnen niet meer bij klikken op het document.
 * Formulierveld-waarden blijven zichtbaar bij het wisselen van modus.

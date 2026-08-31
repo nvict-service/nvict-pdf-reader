@@ -33,7 +33,7 @@ ftp_updates_subdir: /updates
 download_url: "https://www.nvict.nl/software/NVict_Reader/NVict_Reader_Setup.exe"
 update_check_url: "https://www.nvict.nl/software/updates/nvict_reader_version.json"
 
-setup_signed: true
+setup_signed: false
 
 # GitHub (bestaande repo — naam moet matchen met remote)
 github_repo: nvict-pdf-reader

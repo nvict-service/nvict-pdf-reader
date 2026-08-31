@@ -5,7 +5,7 @@ Gebaseerd op de UI-stijl van NV Sync
 Ontwikkeld door NVict Service
 
 Website: www.nvict.nl
-Versie: 2.2
+Versie: 2.5
 """
 
 import sys
@@ -30,7 +30,7 @@ import socket
 import time
 
 # Applicatie versie
-APP_VERSION = "2.4"
+APP_VERSION = "2.5"
 UPDATE_CHECK_URL = "https://www.nvict.nl/software/updates/nvict_reader_version.json"
 
 # ── Beveiliging ─────────────────────────────────────────────────────────────

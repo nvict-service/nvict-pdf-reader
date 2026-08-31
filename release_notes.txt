@@ -1,3 +1,42 @@
+Versie 2.5 - Wat is er nieuw?
+
+Veel sneller bij grote documenten
+  Alleen de pagina's die je op dat moment ziet worden nog getekend, in plaats
+  van het hele document bij elke handeling. Een PDF van 300 pagina's opent nu
+  vrijwel direct, en het slepen van de vensterrand of zoomen blijft vloeiend.
+  Het geheugengebruik loopt niet meer op bij het doorbladeren van lange PDF's.
+
+Opslaan meldt het nu als er iets misgaat
+  Als de wijzigingen niet in de PDF verwerkt konden worden, werd het originele
+  bestand opgeslagen met de melding dat alles bewaard was. Annotaties en
+  markeringen konden zo ongemerkt verloren gaan. Er wordt nu niets opgeslagen
+  en je krijgt een duidelijke melding. Hetzelfde geldt bij printen en doorsturen.
+
+Zoeken springt naar het resultaat
+  De zoekfunctie markeerde de gevonden pagina wel, maar bleef staan waar je was.
+  Het document scrolt nu mee naar de treffer.
+
+Veiliger omgaan met links in PDF's
+  Een PDF kan een koppeling bevatten die geen webadres is maar een verwijzing
+  naar een programma op je computer. Zulke koppelingen worden nu geweigerd;
+  alleen web- en e-mailadressen worden geopend. In de bevestigingsdialoog wordt
+  een zeer lange link ingekort, zodat de knoppen zichtbaar blijven.
+
+Veiliger bijwerken
+  De update-controle accepteert alleen nog downloads van nvict.nl via een
+  beveiligde verbinding, en kan de gedownloade installer op juistheid
+  controleren voordat die gestart wordt.
+
+Opgeloste problemen
+  Instellingen en de lijst met recente bestanden werden niet meer bewaard zodra
+  er een bestandspad met bijzondere tekens in stond.
+  Instellingen kunnen niet meer beschadigd raken als de computer uitvalt tijdens
+  het opslaan.
+  De werkbalkpictogrammen worden op een veiligere manier geladen.
+  Een mislukte download van een update toonde geen foutmelding.
+  In boek-modus kon de rechterpagina na een tekstselectie op de verkeerde plek
+  terechtkomen.
+
 Versie 2.4 - Wat is er nieuw?
 
 Markeringen worden nu correct opgeslagen en geprint
