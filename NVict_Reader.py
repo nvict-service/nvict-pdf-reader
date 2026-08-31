@@ -513,6 +513,10 @@ class PDFTab(tk.Frame):
         self.current_page = 0
         self.zoom_level = 1.0
         self.zoom_mode = "fit_width"
+
+        # Debounce-state voor on_resize (zie NVictReader.on_resize)
+        self._resize_after_id = None
+        self._last_render_width = None
         
         # UI elements
         self.canvas = tk.Canvas(self, bg=theme["BG_PRIMARY"], relief="flat", bd=0, 
@@ -799,14 +803,21 @@ class NVictReader:
         self._start_icon_load_thread()
 
     def _start_icon_load_thread(self):
-        """(Her)start de achtergrond thread die icons laadt"""
+        """(Her)start de achtergrond thread die icons laadt.
+
+        In de thread gebeurt alleen het PIL-werk (inlezen, schalen, inverteren).
+        ImageTk.PhotoImage praat met de Tcl-interpreter en mag daarom uitsluitend
+        op de main thread worden aangemaakt; dat gebeurt in _finish_icon_load(),
+        die via de thread-safe queue wordt aangeroepen.
+        """
         self.icons = {name: None for name in self._ICON_FILES}
         self.icons_loaded = False
 
         def load_icons_thread():
             try:
-                Image, ImageTk, ImageOps, ImageDraw = get_PIL()
+                Image, _ImageTk, ImageOps, _ImageDraw = get_PIL()
                 is_dark_theme = self.theme == Theme.DARK
+                prepared = {}
                 for name, filename in self._ICON_FILES.items():
                     try:
                         path = get_resource_path(os.path.join('icons', filename))
@@ -820,16 +831,32 @@ class NVictReader:
                                     image = Image.merge('RGBA', (r2, g2, b2, a))
                                 else:
                                     image = ImageOps.invert(image)
-                            self.icons[name] = ImageTk.PhotoImage(image)
+                            prepared[name] = image
                     except Exception:
                         pass
-                self.icons_loaded = True
-                # Gebruik thread-safe queue i.p.v. root.after vanuit thread
-                self._thread_queue.put(self.update_toolbar_icons)
+                # Alleen kant-en-klare PIL-images doorgeven; de Tk-objecten
+                # worden op de main thread gemaakt.
+                self._thread_queue.put(lambda p=prepared: self._finish_icon_load(p))
             except Exception as e:
                 print(f"Icon loading error: {e}")
 
         threading.Thread(target=load_icons_thread, daemon=True).start()
+
+    def _finish_icon_load(self, prepared_images):
+        """Maak de Tk-image objecten aan (main thread) en werk de toolbar bij."""
+        try:
+            _Image, ImageTk, _ImageOps, _ImageDraw = get_PIL()
+        except Exception as e:
+            print(f"Icon loading error: {e}")
+            return
+
+        for name, image in prepared_images.items():
+            try:
+                self.icons[name] = ImageTk.PhotoImage(image)
+            except Exception:
+                pass
+        self.icons_loaded = True
+        self.update_toolbar_icons()
     
     def update_toolbar_icons(self):
         """Update toolbar icons nadat ze in achtergrond zijn geladen"""
@@ -1358,6 +1385,7 @@ class NVictReader:
 
         # Hint-banner bovenaan
         self._fs_hint_after_id = None
+        self._fs_resize_after_id = None
         self.fs_hint_frame = tk.Frame(self.fs_window, bg='#1e1e1e')
         self.fs_hint_frame.place(relx=0, rely=0, relwidth=1)
         tk.Label(
@@ -1383,11 +1411,28 @@ class NVictReader:
         self.fs_window.bind('<Right>', lambda e: self._fs_navigate(1))
         self.fs_window.bind('<Prior>', lambda e: self._fs_navigate(-1))
         self.fs_window.bind('<Next>', lambda e: self._fs_navigate(1))
-        self.fs_window.bind('<Configure>', lambda e: self._render_fs_page())
+        self.fs_window.bind('<Configure>', self._fs_on_configure)
         self.fs_window.bind('<Motion>', self._fs_on_mouse_move)
         self.fs_window.protocol('WM_DELETE_WINDOW', self.exit_fullscreen)
 
         self._render_fs_page()
+
+    def _fs_on_configure(self, event=None):
+        """Her-render de volledig-scherm pagina gedebounced bij een resize."""
+        if self._fs_resize_after_id is not None:
+            try:
+                self.fs_window.after_cancel(self._fs_resize_after_id)
+            except Exception:
+                pass
+
+        def do_render():
+            self._fs_resize_after_id = None
+            self._render_fs_page()
+
+        try:
+            self._fs_resize_after_id = self.fs_window.after(150, do_render)
+        except tk.TclError:
+            self._fs_resize_after_id = None
 
     def _fs_schedule_hide(self, delay_ms=3000):
         """Plan het verbergen van de hint-banner na een vertraging"""
@@ -1532,20 +1577,37 @@ class NVictReader:
         try:
             settings_path = get_settings_path()
             if os.path.exists(settings_path):
-                with open(settings_path, 'r') as f:
+                # Expliciet UTF-8: zonder encoding gebruikt Windows cp1252 en
+                # klapt het lezen om op paden met niet-westerse tekens.
+                with open(settings_path, 'r', encoding='utf-8') as f:
                     saved_settings = json.load(f)
                     self.update_settings.update(saved_settings)
-        except Exception:
-            pass  # Gebruik default settings
+        except Exception as e:
+            print(f"[Instellingen] Laden mislukt, standaardwaarden gebruikt: {e}")
     
     def save_update_settings(self):
-        """Sla update instellingen op naar bestand"""
+        """Sla update instellingen op naar bestand (UTF-8, atomair).
+
+        Eerst naar een tijdelijk bestand in dezelfde map schrijven en dat daarna
+        met os.replace() over het echte bestand heen zetten. Zo blijft bij een
+        crash of stroomuitval altijd het oude, geldige bestand staan in plaats
+        van half geschreven JSON dat bij de volgende start onleesbaar is.
+        """
+        settings_path = get_settings_path()
+        tmp_path = settings_path + ".tmp"
         try:
-            settings_path = get_settings_path()
-            with open(settings_path, 'w') as f:
-                json.dump(self.update_settings, f, indent=2)
-        except Exception:
-            pass  # Stille fout
+            with open(tmp_path, 'w', encoding='utf-8') as f:
+                json.dump(self.update_settings, f, indent=2, ensure_ascii=False)
+                f.flush()
+                os.fsync(f.fileno())
+            os.replace(tmp_path, settings_path)
+        except Exception as e:
+            print(f"[Instellingen] Opslaan mislukt: {e}")
+            try:
+                if os.path.exists(tmp_path):
+                    os.remove(tmp_path)
+            except OSError:
+                pass
 
     def add_to_recent_files(self, file_path):
         """Voeg een bestandspad toe aan de lijst van recente bestanden (max 10)"""
@@ -1955,8 +2017,37 @@ class NVictReader:
             self.update_ui_state()
     
     def on_resize(self, event, tab):
-        if tab.zoom_mode == "fit_width":
+        """Her-render bij venstergrootte-wijziging, maar gedebounced.
+
+        <Configure> vuurt tijdens het slepen van de vensterrand tientallen keren
+        per seconde, en display_page() rendert het hele document opnieuw. Zonder
+        debounce loopt dat bij grotere PDF's volledig vast.
+        """
+        if tab.zoom_mode != "fit_width":
+            return
+
+        # Events die de breedte niet veranderen (bv. een scrollbar die
+        # verschijnt) negeren: die kunnen anders een render-lus veroorzaken.
+        if tab.canvas.winfo_width() == tab._last_render_width:
+            return
+
+        if tab._resize_after_id is not None:
+            try:
+                self.root.after_cancel(tab._resize_after_id)
+            except Exception:
+                pass
+
+        def do_resize():
+            tab._resize_after_id = None
+            try:
+                if not tab.winfo_exists() or not tab.pdf_document:
+                    return
+            except tk.TclError:
+                return
+            tab._last_render_width = tab.canvas.winfo_width()
             self.display_page(tab)
+
+        tab._resize_after_id = self.root.after(200, do_resize)
 
     def display_page(self, tab):
         if not tab or not tab.pdf_document:
@@ -2789,9 +2880,17 @@ class NVictReader:
                     return
                 if answer:
                     # Maak tijdelijk bewerkt PDF voor printen
-                    tmp_path = self._build_modified_pdf(tab)
-                    if tmp_path:
-                        self._print_temp_path = tmp_path
+                    try:
+                        self._print_temp_path = self._build_modified_pdf(tab)
+                    except Exception as e:
+                        messagebox.showerror(
+                            "Wijzigingen niet verwerkt",
+                            "De wijzigingen konden niet in de PDF worden verwerkt, "
+                            "dus er wordt niet geprint.\n\n"
+                            f"Details: {e}\n\n"
+                            "Het originele document is niet aangepast."
+                        )
+                        return
 
             print_dialog = tk.Toplevel(self.root)
             print_dialog.title("Afdrukken")
@@ -3619,7 +3718,11 @@ class NVictReader:
 
     def _build_modified_pdf(self, tab):
         """Maak een tijdelijk PDF-bestand met alle wijzigingen (annotaties, markeringen, formuliervelden).
-        Retourneert het pad naar het tijdelijke bestand, of None als er geen wijzigingen zijn."""
+
+        Retourneert het pad naar het tijdelijke bestand, of None als er geen
+        wijzigingen zijn. Gaat er iets mis bij het opbouwen, dan wordt de
+        exception doorgegooid; de aanroeper moet die afvangen en mag in dat
+        geval NOOIT stilzwijgend het originele bestand gebruiken."""
         # Verzamel waarden uit actieve form widgets
         if tab.form_widgets:
             self._save_form_widget_values(tab)
@@ -3632,9 +3735,11 @@ class NVictReader:
         if not has_changes:
             return None
 
+        fitz = get_fitz()
+        import tempfile
+        doc = None
+        tmp_path = None
         try:
-            fitz = get_fitz()
-            import tempfile
             doc = fitz.open(tab.file_path)
 
             # 1. Formuliervelden invullen
@@ -3703,22 +3808,24 @@ class NVictReader:
             tmp_path = tmp.name
             tmp.close()
             doc.save(tmp_path)
-            doc.close()
             return tmp_path
-        except Exception as e:
-            # Niet stil falen: anders kopieert/print de aanroeper het origineel
-            # zonder wijzigingen terwijl de gebruiker denkt dat alles bewaard is.
-            print(f"Error building modified PDF: {e}")
-            try:
-                messagebox.showerror(
-                    "Wijzigingen niet verwerkt",
-                    "De wijzigingen konden niet in de PDF worden verwerkt.\n\n"
-                    f"Details: {e}\n\n"
-                    "Het originele document is niet aangepast."
-                )
-            except Exception:
-                pass
-            return None
+        except Exception:
+            # Ruim een half geschreven tijdelijk bestand op en laat de fout
+            # doorschieten. Nooit None teruggeven bij een fout: de aanroeper
+            # zou dan het origineel gebruiken terwijl de gebruiker denkt dat
+            # de wijzigingen erin zitten.
+            if tmp_path and os.path.exists(tmp_path):
+                try:
+                    os.remove(tmp_path)
+                except OSError:
+                    pass
+            raise
+        finally:
+            if doc is not None:
+                try:
+                    doc.close()
+                except Exception:
+                    pass
 
     def send_pdf(self):
         """Verstuur/deel de actieve PDF via e-mail (Outlook of standaard mailprogramma)"""
@@ -3728,7 +3835,17 @@ class NVictReader:
             return
 
         # Bouw een gewijzigde PDF als er aanpassingen zijn, anders gebruik origineel
-        modified_path = self._build_modified_pdf(tab)
+        try:
+            modified_path = self._build_modified_pdf(tab)
+        except Exception as e:
+            messagebox.showerror(
+                "Wijzigingen niet verwerkt",
+                "De wijzigingen konden niet in de PDF worden verwerkt, "
+                "dus er wordt niets doorgestuurd.\n\n"
+                f"Details: {e}\n\n"
+                "Het originele document is niet aangepast."
+            )
+            return
         pdf_path = modified_path if modified_path else tab.file_path
         filename = os.path.basename(pdf_path)
 
@@ -3809,13 +3926,30 @@ class NVictReader:
 
         try:
             tmp_path = self._build_modified_pdf(tab)
-            if tmp_path:
-                import shutil
-                shutil.move(tmp_path, save_path)
-            else:
-                # Geen wijzigingen gevonden, kopieer origineel
-                import shutil
-                shutil.copy2(original, save_path)
+        except Exception as e:
+            messagebox.showerror(
+                "Wijzigingen niet verwerkt",
+                "De wijzigingen konden niet in de PDF worden verwerkt.\n\n"
+                f"Details: {e}\n\n"
+                "Er is niets opgeslagen; het originele document is niet aangepast."
+            )
+            return
+
+        if not tmp_path:
+            # _has_unsaved_changes() gaf hierboven True, dus hier komen zou niet
+            # mogen kunnen. Het origineel wegschrijven en dat als "opgeslagen"
+            # melden is het ergste wat we kunnen doen: de gebruiker denkt dan
+            # dat zijn wijzigingen bewaard zijn terwijl ze verdwenen zijn.
+            messagebox.showerror(
+                "Wijzigingen niet verwerkt",
+                "De wijzigingen konden niet worden teruggevonden om op te slaan.\n\n"
+                "Er is niets opgeslagen; het originele document is niet aangepast."
+            )
+            return
+
+        try:
+            import shutil
+            shutil.move(tmp_path, save_path)
 
             # Wis de wijzigingen na succesvol opslaan
             tab.form_field_values = {}
@@ -3828,6 +3962,13 @@ class NVictReader:
                                f"PDF opgeslagen als:\n{os.path.basename(save_path)}")
 
         except Exception as e:
+            # Verplaatsen mislukt (schijf vol, geen rechten, ...): laat het
+            # tijdelijke bestand niet rondslingeren.
+            if os.path.exists(tmp_path):
+                try:
+                    os.remove(tmp_path)
+                except OSError:
+                    pass
             messagebox.showerror("Fout", f"Kan PDF niet opslaan:\n{str(e)}")
 
     # ─── Formulier invulvelden ───────────────────────────────────────────
@@ -5795,7 +5936,9 @@ class NVictReader:
                     self.root.after(0, lambda: self._finish_download(progress_dialog, filepath))
                     
                 except Exception as e:
-                    self.root.after(0, lambda: self._download_error(progress_dialog, str(e)))
+                    # str(e) nu vastleggen: 'e' is weg zodra dit except-blok
+                    # eindigt, en de lambda draait pas later op de main thread.
+                    self.root.after(0, lambda msg=str(e): self._download_error(progress_dialog, msg))
             
             thread = threading.Thread(target=download_thread, daemon=True)
             thread.start()
