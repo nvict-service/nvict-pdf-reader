@@ -18,7 +18,7 @@ from PySide6.QtWidgets import (
     QMenu,
 )
 
-from . import rendering
+from . import form_overlay, rendering
 from .annotations import COLOR_MAP, HIGHLIGHT_COLOR, HighlightAnnotation, TextAnnotation
 from .document import get_fitz
 from .text_annotation_dialog import TextAnnotationDialog
@@ -27,6 +27,9 @@ RENDER_DEBOUNCE_MS = 60
 PLACEHOLDER_COLOR = QColor("#d9d9d9")
 DRAG_SELECTION_BRUSH = QBrush(QColor(173, 216, 230, 100))
 DRAG_SELECTION_PEN = QPen(QColor(100, 150, 200, 200))
+FIELD_HIGHLIGHT_BRUSH = QBrush(QColor(208, 232, 255, 110))
+FIELD_HIGHLIGHT_PEN = QPen(QColor(128, 184, 255))
+FORM_WIDGETS_CACHE_PAGES = 20
 
 _FONT_FAMILY_BY_CODE = {"helv": "Arial", "tiro": "Times New Roman", "cour": "Courier New"}
 
@@ -83,8 +86,19 @@ class PdfGraphicsView(QGraphicsView):
         # ── Bewerken-menu-state (fase 3) ──
         self.pending_rotations = {}  # page_num -> graden, nog niet naar schijf geschreven
 
+        # ── Formuliervelden (fase 4) ──
+        self.form_mode = False           # apart van tool_mode: geen klik-plaats-tool, aanhoudende weergave
+        self.form_field_values = {}      # xref -> waarde (bool voor checkbox/radio, str voor tekst/combobox)
+        self._form_overlay_items = []    # list[QGraphicsProxyWidget], alleen actief tijdens form_mode
+        self._radio_groups = {}          # field_name -> QButtonGroup
+        self._widgets_cache = {}         # page_num -> list[Widget], lazy per pagina
+        self._field_highlight_items = {}  # page_num -> list[QGraphicsItem], passieve indicator
+
     def has_unsaved_changes(self):
-        return bool(self.text_annotations) or bool(self.highlight_annotations) or bool(self.pending_rotations)
+        return (
+            bool(self.text_annotations) or bool(self.highlight_annotations)
+            or bool(self.pending_rotations) or bool(self.form_field_values)
+        )
 
     def clear_saved_changes(self):
         """Na succesvol 'Opslaan als': wis de pending-state.
@@ -93,6 +107,9 @@ class PdfGraphicsView(QGraphicsView):
         moet ook van het scherm; highlights en rotaties stonden al op het
         live fitz-document en blijven dus gewoon zichtbaar (alleen de
         boekhoudlijsten worden gewist, zoals in NVict_Reader.py:4179-4183).
+        Formulierwaarden worden ook gewist (zelfde gedrag als tkinter) - de
+        passieve waarde-tekst-indicator verdwijnt daardoor weer, ook al staat
+        de waarde inmiddels veilig in het opgeslagen bestand.
         """
         for _annotation, item in self._text_overlay_items:
             self.scene().removeItem(item)
@@ -100,6 +117,8 @@ class PdfGraphicsView(QGraphicsView):
         self.text_annotations = []
         self.highlight_annotations = []
         self.pending_rotations = {}
+        self.form_field_values = {}
+        self._refresh_field_highlights()
 
     def rotate_pages(self, page_nums, degrees):
         """Roteer de gegeven pagina's direct op het levende document.
@@ -153,6 +172,13 @@ class PdfGraphicsView(QGraphicsView):
         self._word_cache = {}
         self._drag_rect_item = None
         self._drag_start_scene = None
+        self.pending_rotations = {}
+        self.form_mode = False
+        self.form_field_values = {}
+        self._form_overlay_items = []
+        self._radio_groups = {}
+        self._widgets_cache = {}
+        self._field_highlight_items = {}
 
     # ── Layout & rendering ───────────────────────────────────────────
 
@@ -168,6 +194,9 @@ class PdfGraphicsView(QGraphicsView):
         self._rendered_pages = None
         self._text_overlay_items = []
         self._drag_rect_item = None
+        self._form_overlay_items = []
+        self._radio_groups = {}
+        self._field_highlight_items = {}
 
         layout, total_width, total_height = rendering.compute_page_layout(self.pdf_document, self.zoom_level)
         self.page_layout = layout
@@ -184,6 +213,9 @@ class PdfGraphicsView(QGraphicsView):
 
         for annotation in self.text_annotations:
             self._add_text_annotation_overlay(annotation)
+
+        if self.form_mode:
+            self._build_form_overlays()
 
         if force_render:
             self.render_visible_pages(force=True)
@@ -210,6 +242,7 @@ class PdfGraphicsView(QGraphicsView):
                 item = self._pixmap_items.pop(page_num)
                 self.scene().removeItem(item)
                 self._restore_placeholder(page_num)
+                self._remove_field_highlights(page_num)
 
         for page_num in wanted:
             if page_num in self._pixmap_items:
@@ -229,6 +262,7 @@ class PdfGraphicsView(QGraphicsView):
             item.setZValue(1)
             self.scene().addItem(item)
             self._pixmap_items[page_num] = item
+            self._add_field_highlights(page_num)
 
         self._rendered_pages = wanted
         anchor = wanted[0] if wanted else self.current_page
@@ -327,8 +361,16 @@ class PdfGraphicsView(QGraphicsView):
     # ── Annotaties: tekst & markeren (fase 2) ──────────────────────────
 
     def set_tool_mode(self, mode):
-        """Zet de actieve tool ("text_annotate"/"highlight"/None), exclusief."""
+        """Zet de actieve tool ("text_annotate"/"highlight"/None), exclusief.
+
+        Exclusief met form_mode (fase 4): een klik-tool en de aanhoudende
+        formulier-overlay-weergave kunnen niet gelijktijdig actief zijn,
+        zelfde exclusiviteit als in NVict_Reader.py (punt 7 van het
+        fase-4-onderzoek).
+        """
         self.tool_mode = mode
+        if mode is not None and self.form_mode:
+            self.set_form_mode(False)
         if mode == "text_annotate":
             self.setCursor(Qt.CursorShape.IBeamCursor)
         elif mode == "highlight":
@@ -516,6 +558,115 @@ class PdfGraphicsView(QGraphicsView):
         chosen = menu.exec(self.viewport().mapToGlobal(self.mapFromScene(scene_pos)))
         if chosen == remove_action:
             self._remove_highlight(highlight)
+
+    # ── Formuliervelden (fase 4) ────────────────────────────────────────
+
+    def _widgets_for_page(self, page_num):
+        widgets = self._widgets_cache.get(page_num)
+        if widgets is None:
+            widgets = list(self.pdf_document[page_num].widgets())
+            self._widgets_cache[page_num] = widgets
+            rendering.trim_page_cache(self._widgets_cache, keep=[page_num], anchor=self.current_page,
+                                       max_pages=FORM_WIDGETS_CACHE_PAGES)
+        return widgets
+
+    def _document_has_widgets(self):
+        if not self.pdf_document:
+            return False
+        return any(self._widgets_for_page(page_num) for page_num in range(len(self.pdf_document)))
+
+    def set_form_mode(self, enabled):
+        """Schakel de formulier-invulmodus in/uit.
+
+        Geeft False terug als inschakelen niet kan omdat het document geen
+        enkel formulierveld heeft (aanroeper toont dan de melding, zoals
+        NVict_Reader.py:4223-4226) - form_mode blijft in dat geval uit.
+        """
+        if enabled:
+            if not self._document_has_widgets():
+                return False
+            self.form_mode = True
+            self.set_tool_mode(None)
+            self._build_form_overlays()
+        else:
+            self.form_mode = False
+            self._clear_form_overlays()
+            self._refresh_field_highlights()
+        return True
+
+    def _build_form_overlays(self):
+        self._clear_form_overlays()
+        for page_num, entry in self._layout_by_page.items():
+            for widget in self._widgets_for_page(page_num):
+                rect = widget.rect
+                x = entry.x + rect.x0 * self.zoom_level
+                y = entry.y + rect.y0 * self.zoom_level
+                w = max((rect.x1 - rect.x0) * self.zoom_level, 30)
+                h = max((rect.y1 - rect.y0) * self.zoom_level, 20)
+
+                field_widget = form_overlay.create_field_widget(widget, self._on_form_value_changed, self._radio_groups)
+                field_widget.resize(int(w), int(h))
+                proxy = self.scene().addWidget(field_widget)
+                proxy.setPos(x, y)
+                proxy.setZValue(4)
+                self._form_overlay_items.append(proxy)
+
+    def _clear_form_overlays(self):
+        for proxy in self._form_overlay_items:
+            self.scene().removeItem(proxy)
+        self._form_overlay_items = []
+        self._radio_groups = {}
+
+    def _on_form_value_changed(self, xref, value):
+        self.form_field_values[xref] = value
+
+    def _add_field_highlights(self, page_num):
+        entry = self._layout_by_page.get(page_num)
+        widgets = self._widgets_for_page(page_num)
+        if entry is None or not widgets:
+            return
+        items = []
+        for widget in widgets:
+            rect = widget.rect
+            x = entry.x + rect.x0 * self.zoom_level
+            y = entry.y + rect.y0 * self.zoom_level
+            w = (rect.x1 - rect.x0) * self.zoom_level
+            h = (rect.y1 - rect.y0) * self.zoom_level
+
+            highlight = QGraphicsRectItem(0, 0, w, h)
+            highlight.setPos(x, y)
+            highlight.setBrush(FIELD_HIGHLIGHT_BRUSH)
+            highlight.setPen(FIELD_HIGHLIGHT_PEN)
+            highlight.setZValue(1.5)
+            self.scene().addItem(highlight)
+            items.append(highlight)
+
+            if not self.form_mode and widget.xref in self.form_field_values:
+                value = self.form_field_values[widget.xref]
+                if widget.field_type in (form_overlay.FIELD_TYPE_CHECKBOX, form_overlay.FIELD_TYPE_RADIOBUTTON):
+                    text = "✓" if value else ""
+                else:
+                    text = str(value)
+                if text:
+                    text_item = QGraphicsSimpleTextItem(text)
+                    font = QFont("Arial")
+                    font.setPixelSize(max(1, round(min(h, 16) * 0.8)))
+                    text_item.setFont(font)
+                    text_item.setPos(x + 2, y)
+                    text_item.setZValue(1.6)
+                    self.scene().addItem(text_item)
+                    items.append(text_item)
+
+        self._field_highlight_items[page_num] = items
+
+    def _remove_field_highlights(self, page_num):
+        for item in self._field_highlight_items.pop(page_num, []):
+            self.scene().removeItem(item)
+
+    def _refresh_field_highlights(self):
+        for page_num in list(self._pixmap_items.keys()):
+            self._remove_field_highlights(page_num)
+            self._add_field_highlights(page_num)
 
     # ── Qt events ────────────────────────────────────────────────────
 

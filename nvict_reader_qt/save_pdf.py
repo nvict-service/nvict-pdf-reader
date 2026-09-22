@@ -12,17 +12,19 @@ import tempfile
 
 from PySide6.QtWidgets import QFileDialog, QMessageBox
 
+from . import form_overlay
 from .annotations import COLOR_MAP
 from .document import get_fitz
 
 
-def build_modified_pdf(file_path, text_annotations, highlight_annotations, pending_rotations=None):
+def build_modified_pdf(file_path, text_annotations, highlight_annotations, pending_rotations=None, form_field_values=None):
     """Open het originele bestand vers vanaf schijf en voeg wijzigingen toe.
 
     Geeft het pad naar een tempfile terug, of None als er niets te doen was.
     """
     pending_rotations = pending_rotations or {}
-    if not text_annotations and not highlight_annotations and not pending_rotations:
+    form_field_values = form_field_values or {}
+    if not text_annotations and not highlight_annotations and not pending_rotations and not form_field_values:
         return None
 
     fitz = get_fitz()
@@ -30,6 +32,18 @@ def build_modified_pdf(file_path, text_annotations, highlight_annotations, pendi
     try:
         for page_num, degrees in pending_rotations.items():
             doc[page_num].set_rotation(degrees)
+
+        if form_field_values:
+            for page in doc:
+                for widget in page.widgets():
+                    if widget.xref not in form_field_values:
+                        continue
+                    value = form_field_values[widget.xref]
+                    if widget.field_type in (form_overlay.FIELD_TYPE_CHECKBOX, form_overlay.FIELD_TYPE_RADIOBUTTON):
+                        widget.field_value = widget.on_state() if value else "Off"
+                    else:
+                        widget.field_value = value
+                    widget.update()
 
         for annotation in text_annotations:
             page = doc[annotation.page_num]
@@ -85,7 +99,8 @@ def save_as(parent, tab) -> bool:
 
     try:
         tmp_path = build_modified_pdf(
-            tab.file_path, view.text_annotations, view.highlight_annotations, view.pending_rotations
+            tab.file_path, view.text_annotations, view.highlight_annotations,
+            view.pending_rotations, view.form_field_values,
         )
         if tmp_path is None:
             return False
@@ -111,7 +126,7 @@ def confirm_discard_unsaved(parent, view, action_description) -> bool:
         return True
     reply = QMessageBox.question(
         parent, "Niet-opgeslagen wijzigingen",
-        "Er zijn nog niet-opgeslagen tekst-annotaties, markeringen of paginarotaties "
-        f"op dit tabblad. Deze worden niet meegenomen in {action_description}.\n\nDoorgaan?",
+        "Er zijn nog niet-opgeslagen tekst-annotaties, markeringen, paginarotaties of "
+        f"formuliergegevens op dit tabblad. Deze worden niet meegenomen in {action_description}.\n\nDoorgaan?",
     )
     return reply == QMessageBox.StandardButton.Yes

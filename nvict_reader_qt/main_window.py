@@ -114,6 +114,10 @@ class MainWindow(QMainWindow):
         self.action_highlight.setCheckable(True)
         self.action_highlight.toggled.connect(self._on_highlight_toggled)
 
+        self.action_form_mode = QAction(_icon("form.png"), "&Formulier invullen", self)
+        self.action_form_mode.setCheckable(True)
+        self.action_form_mode.toggled.connect(self._on_form_mode_toggled)
+
         self.action_export_pages = QAction(_icon("pages.png"), "Pagina's &exporteren...", self)
         self.action_export_pages.triggered.connect(self._export_pages_current)
 
@@ -146,6 +150,7 @@ class MainWindow(QMainWindow):
         annotate_menu = self.menuBar().addMenu("&Annotaties")
         annotate_menu.addAction(self.action_text_annotate)
         annotate_menu.addAction(self.action_highlight)
+        annotate_menu.addAction(self.action_form_mode)
 
         edit_menu = self.menuBar().addMenu("&Bewerken")
         edit_menu.addAction(self.action_export_pages)
@@ -171,6 +176,7 @@ class MainWindow(QMainWindow):
         toolbar.addSeparator()
         toolbar.addAction(self.action_text_annotate)
         toolbar.addAction(self.action_highlight)
+        toolbar.addAction(self.action_form_mode)
         toolbar.addSeparator()
 
         self.edit_menu_button = QToolButton(toolbar)
@@ -188,7 +194,8 @@ class MainWindow(QMainWindow):
             self.action_fit_width, self.action_first_page, self.action_prev_page,
             self.action_next_page, self.action_last_page, self.action_print,
             self.action_save_as, self.action_text_annotate, self.action_highlight,
-            self.action_export_pages, self.action_merge_pdfs, self.action_rotate_pages,
+            self.action_form_mode, self.action_export_pages, self.action_merge_pdfs,
+            self.action_rotate_pages,
         ):
             action.setEnabled(has_tab)
         self.edit_menu_button.setEnabled(has_tab)
@@ -204,21 +211,25 @@ class MainWindow(QMainWindow):
         self._update_actions_enabled()
         tab = self.tabs.currentWidget()
         mode = tab.view.tool_mode if tab is not None else None
-        self.action_text_annotate.blockSignals(True)
-        self.action_highlight.blockSignals(True)
+        form_active = tab.view.form_mode if tab is not None else False
+        for action in (self.action_text_annotate, self.action_highlight, self.action_form_mode):
+            action.blockSignals(True)
         self.action_text_annotate.setChecked(mode == "text_annotate")
         self.action_highlight.setChecked(mode == "highlight")
-        self.action_text_annotate.blockSignals(False)
-        self.action_highlight.blockSignals(False)
+        self.action_form_mode.setChecked(form_active)
+        for action in (self.action_text_annotate, self.action_highlight, self.action_form_mode):
+            action.blockSignals(False)
 
     def _on_text_annotate_toggled(self, checked):
         if checked:
             self.action_highlight.setChecked(False)
+            self.action_form_mode.setChecked(False)
         self._apply_tool_mode()
 
     def _on_highlight_toggled(self, checked):
         if checked:
             self.action_text_annotate.setChecked(False)
+            self.action_form_mode.setChecked(False)
         self._apply_tool_mode()
 
     def _apply_tool_mode(self):
@@ -228,6 +239,26 @@ class MainWindow(QMainWindow):
         elif self.action_highlight.isChecked():
             mode = "highlight"
         self._on_active(lambda v: v.set_tool_mode(mode))
+
+    def _on_form_mode_toggled(self, checked):
+        if checked:
+            self.action_text_annotate.setChecked(False)
+            self.action_highlight.setChecked(False)
+
+        tab = self.tabs.currentWidget()
+        if tab is None:
+            return
+
+        if checked:
+            if not tab.view.set_form_mode(True):
+                self.action_form_mode.blockSignals(True)
+                self.action_form_mode.setChecked(False)
+                self.action_form_mode.blockSignals(False)
+                QMessageBox.information(
+                    self, "Geen formuliervelden", "Dit document heeft geen invulbare formuliervelden."
+                )
+        else:
+            tab.view.set_form_mode(False)
 
     def _close_tab(self, index):
         if index < 0:
