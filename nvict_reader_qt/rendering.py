@@ -20,6 +20,10 @@ PAGE_SPACING = 20
 
 PageLayoutEntry = namedtuple("PageLayoutEntry", ["page_num", "x", "y", "width", "height"])
 
+WORD_CACHE_PAGES = 20  # aantal pagina's waarvan we de woordenlijst vasthouden
+
+WordBox = namedtuple("WordBox", ["text", "x0", "y0", "x1", "y1"])
+
 
 def compute_page_layout(pdf_document, zoom_level):
     """Bereken pagina-posities en totale documentgrootte voor doorlopend scrollen.
@@ -77,6 +81,17 @@ def visible_page_numbers(layout, viewport_top, viewport_height, current_page=0, 
     first = max(0, min(visible_idx) - margin)
     last = min(len(layout) - 1, max(visible_idx) + margin)
     return [layout[i].page_num for i in range(first, last + 1)]
+
+
+def get_page_words(pdf_document, page_num):
+    """Geef de woorden van een pagina terug in PDF-coördinaten (ongezoomd).
+
+    Poort van het `page.get_text("words")`-gebruik in NVict_Reader.py
+    (regel 2298-2306), los van canvas/zoom - de aanroeper rekent zelf om
+    naar scene-coördinaten via de PageLayoutEntry van deze pagina.
+    """
+    page = pdf_document[page_num]
+    return [WordBox(w[4], w[0], w[1], w[2], w[3]) for w in page.get_text("words")]
 
 
 def trim_page_cache(cache: dict, keep, anchor, max_pages=RENDER_CACHE_PAGES):
