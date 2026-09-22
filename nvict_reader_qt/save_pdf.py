@@ -16,17 +16,21 @@ from .annotations import COLOR_MAP
 from .document import get_fitz
 
 
-def build_modified_pdf(file_path, text_annotations, highlight_annotations):
-    """Open het originele bestand vers vanaf schijf en voeg annotaties toe.
+def build_modified_pdf(file_path, text_annotations, highlight_annotations, pending_rotations=None):
+    """Open het originele bestand vers vanaf schijf en voeg wijzigingen toe.
 
     Geeft het pad naar een tempfile terug, of None als er niets te doen was.
     """
-    if not text_annotations and not highlight_annotations:
+    pending_rotations = pending_rotations or {}
+    if not text_annotations and not highlight_annotations and not pending_rotations:
         return None
 
     fitz = get_fitz()
     doc = fitz.open(file_path)
     try:
+        for page_num, degrees in pending_rotations.items():
+            doc[page_num].set_rotation(degrees)
+
         for annotation in text_annotations:
             page = doc[annotation.page_num]
             lines = annotation.text.split("\n")
@@ -80,7 +84,9 @@ def save_as(parent, tab) -> bool:
         return False
 
     try:
-        tmp_path = build_modified_pdf(tab.file_path, view.text_annotations, view.highlight_annotations)
+        tmp_path = build_modified_pdf(
+            tab.file_path, view.text_annotations, view.highlight_annotations, view.pending_rotations
+        )
         if tmp_path is None:
             return False
         shutil.move(tmp_path, target_path)
@@ -88,6 +94,24 @@ def save_as(parent, tab) -> bool:
         QMessageBox.critical(parent, "Opslaan mislukt", f"Kon het bestand niet opslaan:\n\n{exc}")
         return False
 
-    view.clear_saved_annotations()
+    view.clear_saved_changes()
     QMessageBox.information(parent, "Opgeslagen", f"Opgeslagen als:\n{target_path}")
     return True
+
+
+def confirm_discard_unsaved(parent, view, action_description) -> bool:
+    """Vraag bevestiging als er nog niet-opgeslagen wijzigingen zijn.
+
+    Geeft True terug als er niets te verliezen is, of als de gebruiker
+    bevestigt dat hij wil doorgaan. Gebruikt door Exporteren/Samenvoegen
+    (regel-3 gat uit het fase-3-onderzoek: die negeerden dit stilzwijgend)
+    en door tab/venster sluiten.
+    """
+    if not view.has_unsaved_changes():
+        return True
+    reply = QMessageBox.question(
+        parent, "Niet-opgeslagen wijzigingen",
+        "Er zijn nog niet-opgeslagen tekst-annotaties, markeringen of paginarotaties "
+        f"op dit tabblad. Deze worden niet meegenomen in {action_description}.\n\nDoorgaan?",
+    )
+    return reply == QMessageBox.StandardButton.Yes

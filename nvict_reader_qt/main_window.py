@@ -6,6 +6,7 @@ Bevat zelf geen documentstate - delegeert naar de actieve tab
 naar self.get_active_tab().
 """
 
+import os
 from pathlib import Path
 
 from PySide6.QtCore import Qt
@@ -17,9 +18,11 @@ from PySide6.QtWidgets import (
     QMessageBox,
     QProgressDialog,
     QTabWidget,
+    QToolButton,
 )
 
-from . import print_backend, save_pdf, settings
+from . import document_tools, print_backend, save_pdf, settings
+from .document_tools_dialogs import ExportPagesDialog, MergePdfsDialog, RotatePagesDialog
 from .pdf_tab import PdfTabWidget
 from .print_dialog import PrintDialog
 
@@ -111,6 +114,15 @@ class MainWindow(QMainWindow):
         self.action_highlight.setCheckable(True)
         self.action_highlight.toggled.connect(self._on_highlight_toggled)
 
+        self.action_export_pages = QAction(_icon("pages.png"), "Pagina's &exporteren...", self)
+        self.action_export_pages.triggered.connect(self._export_pages_current)
+
+        self.action_merge_pdfs = QAction(_icon("copy.png"), "PDF's &samenvoegen...", self)
+        self.action_merge_pdfs.triggered.connect(self._merge_pdfs_current)
+
+        self.action_rotate_pages = QAction(_icon("reset.png"), "Pagina &roteren...", self)
+        self.action_rotate_pages.triggered.connect(self._rotate_pages_current)
+
     def _build_menu(self):
         file_menu = self.menuBar().addMenu("&Bestand")
         file_menu.addAction(self.action_open)
@@ -135,6 +147,12 @@ class MainWindow(QMainWindow):
         annotate_menu.addAction(self.action_text_annotate)
         annotate_menu.addAction(self.action_highlight)
 
+        edit_menu = self.menuBar().addMenu("&Bewerken")
+        edit_menu.addAction(self.action_export_pages)
+        edit_menu.addAction(self.action_merge_pdfs)
+        edit_menu.addAction(self.action_rotate_pages)
+        self.edit_menu = edit_menu
+
     def _build_toolbar(self):
         toolbar = self.addToolBar("Hoofdwerkbalk")
         toolbar.setMovable(False)
@@ -153,6 +171,15 @@ class MainWindow(QMainWindow):
         toolbar.addSeparator()
         toolbar.addAction(self.action_text_annotate)
         toolbar.addAction(self.action_highlight)
+        toolbar.addSeparator()
+
+        self.edit_menu_button = QToolButton(toolbar)
+        self.edit_menu_button.setIcon(_icon("toolbox.png"))
+        self.edit_menu_button.setText("Bewerken")
+        self.edit_menu_button.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonIconOnly)
+        self.edit_menu_button.setPopupMode(QToolButton.ToolButtonPopupMode.InstantPopup)
+        self.edit_menu_button.setMenu(self.edit_menu)
+        toolbar.addWidget(self.edit_menu_button)
 
     def _update_actions_enabled(self):
         has_tab = self.tabs.count() > 0
@@ -161,8 +188,10 @@ class MainWindow(QMainWindow):
             self.action_fit_width, self.action_first_page, self.action_prev_page,
             self.action_next_page, self.action_last_page, self.action_print,
             self.action_save_as, self.action_text_annotate, self.action_highlight,
+            self.action_export_pages, self.action_merge_pdfs, self.action_rotate_pages,
         ):
             action.setEnabled(has_tab)
+        self.edit_menu_button.setEnabled(has_tab)
 
     # ── Tab helpers ──────────────────────────────────────────────────
 
@@ -204,6 +233,8 @@ class MainWindow(QMainWindow):
         if index < 0:
             return
         tab = self.tabs.widget(index)
+        if tab is not None and not save_pdf.confirm_discard_unsaved(self, tab.view, "het sluiten van deze tab"):
+            return
         self.tabs.removeTab(index)
         if tab is not None:
             tab.close_document()
@@ -272,9 +303,86 @@ class MainWindow(QMainWindow):
         if tab is not None:
             save_pdf.save_as(self, tab)
 
+    # ── Bewerken-menu: exporteren, samenvoegen, roteren ──────────────
+
+    def _export_pages_current(self):
+        tab = self.tabs.currentWidget()
+        if tab is None or not tab.view.pdf_document:
+            return
+        if not save_pdf.confirm_discard_unsaved(self, tab.view, "het geëxporteerde bestand"):
+            return
+
+        dialog = ExportPagesDialog(self, tab.page_count)
+        if not dialog.exec():
+            return
+        pages = dialog.get_pages()
+
+        suggested = os.path.splitext(tab.file_path)[0] + "_export.pdf"
+        target_path, _ = QFileDialog.getSaveFileName(self, "Pagina's exporteren", suggested, "PDF-bestanden (*.pdf)")
+        if not target_path:
+            return
+
+        try:
+            document_tools.export_pages(tab.view.pdf_document, pages, target_path)
+        except Exception as exc:
+            QMessageBox.critical(self, "Fout", f"Kan pagina's niet exporteren:\n{exc}")
+            return
+        QMessageBox.information(self, "Succes", f"{len(pages)} pagina('s) succesvol geëxporteerd naar:\n{target_path}")
+
+    def _merge_pdfs_current(self):
+        open_paths = [self.tabs.widget(i).file_path for i in range(self.tabs.count())]
+        dialog = MergePdfsDialog(self, open_paths)
+        if not dialog.exec():
+            return
+        file_paths = dialog.get_file_paths()
+
+        target_path, _ = QFileDialog.getSaveFileName(self, "PDF's samenvoegen", "samengevoegd.pdf", "PDF-bestanden (*.pdf)")
+        if not target_path:
+            return
+
+        try:
+            document_tools.merge_pdfs(file_paths, target_path)
+        except Exception as exc:
+            QMessageBox.critical(self, "Fout", f"Kan PDF's niet samenvoegen:\n{exc}")
+            return
+
+        reply = QMessageBox.question(
+            self, "Succes",
+            f"{len(file_paths)} bestanden succesvol samengevoegd naar:\n{target_path}\n\nNu openen?",
+        )
+        if reply == QMessageBox.StandardButton.Yes:
+            self.open_file(target_path)
+
+    def _rotate_pages_current(self):
+        tab = self.tabs.currentWidget()
+        if tab is None or not tab.view.pdf_document:
+            return
+
+        dialog = RotatePagesDialog(self, tab.page_count, tab.view.current_page)
+        if not dialog.exec():
+            return
+        pages = dialog.get_pages()
+        degrees = dialog.get_rotation()
+
+        try:
+            tab.view.rotate_pages(pages, degrees)
+        except Exception as exc:
+            QMessageBox.critical(self, "Fout", f"Kan pagina's niet roteren:\n{exc}")
+            return
+        QMessageBox.information(
+            self, "Geroteerd",
+            f"{len(pages)} pagina('s) geroteerd met {degrees}°.\n\nVergeet niet op te slaan om de wijziging te behouden!",
+        )
+
     # ── Window lifecycle ─────────────────────────────────────────────
 
     def closeEvent(self, event):
+        for index in range(self.tabs.count()):
+            widget = self.tabs.widget(index)
+            if widget is not None and not save_pdf.confirm_discard_unsaved(self, widget.view, "het afsluiten van NVict Reader"):
+                event.ignore()
+                return
+
         settings.save_window_state(self)
         for index in range(self.tabs.count()):
             widget = self.tabs.widget(index)

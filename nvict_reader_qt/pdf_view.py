@@ -80,22 +80,41 @@ class PdfGraphicsView(QGraphicsView):
         self._drag_rect_item = None
         self._drag_start_scene = None
 
-    def has_unsaved_changes(self):
-        return bool(self.text_annotations) or bool(self.highlight_annotations)
+        # ── Bewerken-menu-state (fase 3) ──
+        self.pending_rotations = {}  # page_num -> graden, nog niet naar schijf geschreven
 
-    def clear_saved_annotations(self):
+    def has_unsaved_changes(self):
+        return bool(self.text_annotations) or bool(self.highlight_annotations) or bool(self.pending_rotations)
+
+    def clear_saved_changes(self):
         """Na succesvol 'Opslaan als': wis de pending-state.
 
         Tekst-annotaties waren nog geen echte PDF-annotatie, dus hun overlay
-        moet ook van het scherm; highlights stonden al op het live
-        fitz-document en blijven dus gewoon zichtbaar (alleen de
-        boekhoudlijst wordt gewist, zoals in NVict_Reader.py:4179-4183).
+        moet ook van het scherm; highlights en rotaties stonden al op het
+        live fitz-document en blijven dus gewoon zichtbaar (alleen de
+        boekhoudlijsten worden gewist, zoals in NVict_Reader.py:4179-4183).
         """
         for _annotation, item in self._text_overlay_items:
             self.scene().removeItem(item)
         self._text_overlay_items = []
         self.text_annotations = []
         self.highlight_annotations = []
+        self.pending_rotations = {}
+
+    def rotate_pages(self, page_nums, degrees):
+        """Roteer de gegeven pagina's direct op het levende document.
+
+        Poort van NVict_Reader.py:5402-5404 (page.set_rotation, absolute
+        hoek). Zichtbaar via de bestaande render, zelfde patroon als
+        highlights - en bijgehouden in pending_rotations zodat 'Opslaan als'
+        de rotatie kan repliceren (dat heropent het bestand vers vanaf
+        schijf, zie save_pdf.py).
+        """
+        for page_num in page_nums:
+            self.pdf_document[page_num].set_rotation(degrees)
+            self.pending_rotations[page_num] = degrees
+            self._pixmap_cache.pop(page_num, None)
+        self.rebuild_layout(force_render=True)
 
     # ── Document lifecycle ────────────────────────────────────────────
 
