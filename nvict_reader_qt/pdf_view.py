@@ -7,9 +7,10 @@ lichte placeholder-rects voor niet-zichtbare pagina's zodat de scrollbars
 meteen de juiste documentgrootte kennen.
 """
 
-from PySide6.QtCore import Qt, QTimer, Signal
+from PySide6.QtCore import QBuffer, QIODevice, Qt, QTimer, Signal
 from PySide6.QtGui import QBrush, QColor, QFont, QImage, QPainter, QPen, QPixmap
 from PySide6.QtWidgets import (
+    QGraphicsItem,
     QGraphicsPixmapItem,
     QGraphicsRectItem,
     QGraphicsScene,
@@ -19,8 +20,9 @@ from PySide6.QtWidgets import (
 )
 
 from . import form_overlay, rendering
-from .annotations import COLOR_MAP, HIGHLIGHT_COLOR, HighlightAnnotation, TextAnnotation
+from .annotations import COLOR_MAP, HIGHLIGHT_COLOR, HighlightAnnotation, SignatureAnnotation, TextAnnotation
 from .document import get_fitz
+from .signature_dialog import SignatureDialog
 from .text_annotation_dialog import TextAnnotationDialog
 
 RENDER_DEBOUNCE_MS = 60
@@ -37,6 +39,44 @@ _FONT_FAMILY_BY_CODE = {"helv": "Arial", "tiro": "Times New Roman", "cour": "Cou
 def _qcolor_from_pdf(color_key) -> QColor:
     r, g, b = COLOR_MAP.get(color_key, (0, 0, 0))
     return QColor(int(r * 255), int(g * 255), int(b * 255))
+
+
+def _qimage_to_png_bytes(image: QImage) -> bytes:
+    buffer = QBuffer()
+    buffer.open(QIODevice.OpenModeFlag.WriteOnly)
+    image.save(buffer, "PNG")
+    return bytes(buffer.data())
+
+
+class _SignatureItem(QGraphicsPixmapItem):
+    """Versleepbare handtekening-afbeelding; houdt annotation.pdf_x/pdf_y bij.
+
+    `ItemIsMovable` laat Qt het slepen zelf afhandelen (geen custom
+    drag-code nodig); `itemChange` synchroniseert de PDF-coördinaten van de
+    annotatie zodra de gebruiker de afbeelding verplaatst, zodat een
+    her-render (bv. na zoomen) de nieuwe positie gebruikt in plaats van de
+    oorspronkelijke plaatsingslocatie.
+    """
+
+    def __init__(self, pixmap, annotation, view):
+        super().__init__(pixmap)
+        self.annotation = annotation
+        self._view = view
+        self.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsMovable, True)
+        self.setFlag(QGraphicsItem.GraphicsItemFlag.ItemSendsGeometryChanges, True)
+        # Getekende handtekeningen hebben een transparante achtergrond tussen
+        # de penseelstreken door - zonder dit zou hit-testing (klikken om te
+        # verslepen/verwijderen) alleen op de inkt zelf reageren, niet op de
+        # hele omkaderde afbeelding zoals de gebruiker die ziet.
+        self.setShapeMode(QGraphicsPixmapItem.ShapeMode.BoundingRectShape)
+
+    def itemChange(self, change, value):
+        if change == QGraphicsItem.GraphicsItemChange.ItemPositionHasChanged:
+            entry = self._view._layout_by_page.get(self.annotation.page_num)
+            if entry is not None and self._view.zoom_level:
+                self.annotation.pdf_x = (value.x() - entry.x) / self._view.zoom_level
+                self.annotation.pdf_y = (value.y() - entry.y) / self._view.zoom_level
+        return super().itemChange(change, value)
 
 
 class PdfGraphicsView(QGraphicsView):
@@ -94,10 +134,15 @@ class PdfGraphicsView(QGraphicsView):
         self._widgets_cache = {}         # page_num -> list[Widget], lazy per pagina
         self._field_highlight_items = {}  # page_num -> list[QGraphicsItem], passieve indicator
 
+        # ── Handtekening (fase 5) ──
+        self.signature_annotations = []   # list[SignatureAnnotation]
+        self._signature_overlay_items = []  # list[_SignatureItem]
+
     def has_unsaved_changes(self):
         return (
             bool(self.text_annotations) or bool(self.highlight_annotations)
             or bool(self.pending_rotations) or bool(self.form_field_values)
+            or bool(self.signature_annotations)
         )
 
     def clear_saved_changes(self):
@@ -114,10 +159,14 @@ class PdfGraphicsView(QGraphicsView):
         for _annotation, item in self._text_overlay_items:
             self.scene().removeItem(item)
         self._text_overlay_items = []
+        for item in self._signature_overlay_items:
+            self.scene().removeItem(item)
+        self._signature_overlay_items = []
         self.text_annotations = []
         self.highlight_annotations = []
         self.pending_rotations = {}
         self.form_field_values = {}
+        self.signature_annotations = []
         self._refresh_field_highlights()
 
     def rotate_pages(self, page_nums, degrees):
@@ -179,6 +228,8 @@ class PdfGraphicsView(QGraphicsView):
         self._radio_groups = {}
         self._widgets_cache = {}
         self._field_highlight_items = {}
+        self.signature_annotations = []
+        self._signature_overlay_items = []
 
     # ── Layout & rendering ───────────────────────────────────────────
 
@@ -197,6 +248,7 @@ class PdfGraphicsView(QGraphicsView):
         self._form_overlay_items = []
         self._radio_groups = {}
         self._field_highlight_items = {}
+        self._signature_overlay_items = []
 
         layout, total_width, total_height = rendering.compute_page_layout(self.pdf_document, self.zoom_level)
         self.page_layout = layout
@@ -213,6 +265,9 @@ class PdfGraphicsView(QGraphicsView):
 
         for annotation in self.text_annotations:
             self._add_text_annotation_overlay(annotation)
+
+        for annotation in self.signature_annotations:
+            self._add_signature_overlay(annotation)
 
         if self.form_mode:
             self._build_form_overlays()
@@ -373,7 +428,7 @@ class PdfGraphicsView(QGraphicsView):
             self.set_form_mode(False)
         if mode == "text_annotate":
             self.setCursor(Qt.CursorShape.IBeamCursor)
-        elif mode == "highlight":
+        elif mode in ("highlight", "signature"):
             self.setCursor(Qt.CursorShape.CrossCursor)
         else:
             self.unsetCursor()
@@ -550,14 +605,24 @@ class PdfGraphicsView(QGraphicsView):
         entry = self._page_at_scene_pos(scene_pos)
         if entry is None:
             return
+
         highlight = self._highlight_at(entry, scene_pos)
-        if highlight is None:
+        if highlight is not None:
+            menu = QMenu(self)
+            remove_action = menu.addAction("Markering verwijderen")
+            chosen = menu.exec(self.viewport().mapToGlobal(self.mapFromScene(scene_pos)))
+            if chosen == remove_action:
+                self._remove_highlight(highlight)
             return
-        menu = QMenu(self)
-        remove_action = menu.addAction("Markering verwijderen")
-        chosen = menu.exec(self.viewport().mapToGlobal(self.mapFromScene(scene_pos)))
-        if chosen == remove_action:
-            self._remove_highlight(highlight)
+
+        signature_hit = self._signature_at(scene_pos)
+        if signature_hit is not None:
+            annotation, item = signature_hit
+            menu = QMenu(self)
+            remove_action = menu.addAction("Handtekening verwijderen")
+            chosen = menu.exec(self.viewport().mapToGlobal(self.mapFromScene(scene_pos)))
+            if chosen == remove_action:
+                self._remove_signature(annotation, item)
 
     # ── Formuliervelden (fase 4) ────────────────────────────────────────
 
@@ -668,6 +733,66 @@ class PdfGraphicsView(QGraphicsView):
             self._remove_field_highlights(page_num)
             self._add_field_highlights(page_num)
 
+    # ── Handtekening (fase 5) ────────────────────────────────────────────
+
+    def _add_signature_overlay(self, annotation: SignatureAnnotation):
+        entry = self._layout_by_page.get(annotation.page_num)
+        if entry is None:
+            return
+        image = QImage.fromData(annotation.image_bytes)
+        if image.isNull():
+            return
+        pixmap = QPixmap.fromImage(image).scaled(
+            max(1, round(annotation.width * self.zoom_level)),
+            max(1, round(annotation.height * self.zoom_level)),
+            Qt.AspectRatioMode.IgnoreAspectRatio, Qt.TransformationMode.SmoothTransformation,
+        )
+        item = _SignatureItem(pixmap, annotation, self)
+        item.setPos(entry.x + annotation.pdf_x * self.zoom_level, entry.y + annotation.pdf_y * self.zoom_level)
+        item.setZValue(2)
+        self.scene().addItem(item)
+        self._signature_overlay_items.append(item)
+
+    def _signature_at(self, scene_pos):
+        for item in self._signature_overlay_items:
+            if item.contains(item.mapFromScene(scene_pos)):
+                return item.annotation, item
+        return None
+
+    def _remove_signature(self, annotation, item):
+        if annotation in self.signature_annotations:
+            self.signature_annotations.remove(annotation)
+        if item in self._signature_overlay_items:
+            self._signature_overlay_items.remove(item)
+        self.scene().removeItem(item)
+
+    def _handle_signature_click(self, scene_pos):
+        entry = self._page_at_scene_pos(scene_pos)
+        if entry is None:
+            return
+
+        dialog = SignatureDialog(self)
+        if not dialog.exec():
+            return
+        image = dialog.get_image()
+        if image is None:
+            return
+
+        target_width = dialog.get_target_width_pt()
+        aspect = image.height() / image.width() if image.width() else 1.0
+        target_height = target_width * aspect
+
+        pdf_x = (scene_pos.x() - entry.x) / self.zoom_level
+        pdf_y = (scene_pos.y() - entry.y) / self.zoom_level
+
+        annotation = SignatureAnnotation(
+            page_num=entry.page_num, pdf_x=pdf_x, pdf_y=pdf_y,
+            width=target_width, height=target_height,
+            image_bytes=_qimage_to_png_bytes(image),
+        )
+        self.signature_annotations.append(annotation)
+        self._add_signature_overlay(annotation)
+
     # ── Qt events ────────────────────────────────────────────────────
 
     def mousePressEvent(self, event):
@@ -687,6 +812,16 @@ class PdfGraphicsView(QGraphicsView):
                 return
             if self.tool_mode == "highlight":
                 self._handle_highlight_press(scene_pos)
+                return
+            if self.tool_mode == "signature":
+                # Klik op een bestaande handtekening: laat Qt's ingebouwde
+                # item-drag het overnemen (verslepen) i.p.v. een nieuwe te
+                # plaatsen.
+                hit_item = self.itemAt(event.position().toPoint())
+                if isinstance(hit_item, _SignatureItem):
+                    super().mousePressEvent(event)
+                    return
+                self._handle_signature_click(scene_pos)
                 return
 
         super().mousePressEvent(event)

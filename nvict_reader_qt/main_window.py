@@ -118,6 +118,10 @@ class MainWindow(QMainWindow):
         self.action_form_mode.setCheckable(True)
         self.action_form_mode.toggled.connect(self._on_form_mode_toggled)
 
+        self.action_signature = QAction(_icon("check.png"), "&Handtekening plaatsen", self)
+        self.action_signature.setCheckable(True)
+        self.action_signature.toggled.connect(self._on_signature_toggled)
+
         self.action_export_pages = QAction(_icon("pages.png"), "Pagina's &exporteren...", self)
         self.action_export_pages.triggered.connect(self._export_pages_current)
 
@@ -151,6 +155,7 @@ class MainWindow(QMainWindow):
         annotate_menu.addAction(self.action_text_annotate)
         annotate_menu.addAction(self.action_highlight)
         annotate_menu.addAction(self.action_form_mode)
+        annotate_menu.addAction(self.action_signature)
 
         edit_menu = self.menuBar().addMenu("&Bewerken")
         edit_menu.addAction(self.action_export_pages)
@@ -177,6 +182,7 @@ class MainWindow(QMainWindow):
         toolbar.addAction(self.action_text_annotate)
         toolbar.addAction(self.action_highlight)
         toolbar.addAction(self.action_form_mode)
+        toolbar.addAction(self.action_signature)
         toolbar.addSeparator()
 
         self.edit_menu_button = QToolButton(toolbar)
@@ -194,8 +200,8 @@ class MainWindow(QMainWindow):
             self.action_fit_width, self.action_first_page, self.action_prev_page,
             self.action_next_page, self.action_last_page, self.action_print,
             self.action_save_as, self.action_text_annotate, self.action_highlight,
-            self.action_form_mode, self.action_export_pages, self.action_merge_pdfs,
-            self.action_rotate_pages,
+            self.action_form_mode, self.action_signature, self.action_export_pages,
+            self.action_merge_pdfs, self.action_rotate_pages,
         ):
             action.setEnabled(has_tab)
         self.edit_menu_button.setEnabled(has_tab)
@@ -212,24 +218,34 @@ class MainWindow(QMainWindow):
         tab = self.tabs.currentWidget()
         mode = tab.view.tool_mode if tab is not None else None
         form_active = tab.view.form_mode if tab is not None else False
-        for action in (self.action_text_annotate, self.action_highlight, self.action_form_mode):
+        actions = (self.action_text_annotate, self.action_highlight, self.action_form_mode, self.action_signature)
+        for action in actions:
             action.blockSignals(True)
         self.action_text_annotate.setChecked(mode == "text_annotate")
         self.action_highlight.setChecked(mode == "highlight")
+        self.action_signature.setChecked(mode == "signature")
         self.action_form_mode.setChecked(form_active)
-        for action in (self.action_text_annotate, self.action_highlight, self.action_form_mode):
+        for action in actions:
             action.blockSignals(False)
+
+    def _uncheck_other_tools(self, keep):
+        for action in (self.action_text_annotate, self.action_highlight, self.action_form_mode, self.action_signature):
+            if action is not keep:
+                action.setChecked(False)
 
     def _on_text_annotate_toggled(self, checked):
         if checked:
-            self.action_highlight.setChecked(False)
-            self.action_form_mode.setChecked(False)
+            self._uncheck_other_tools(self.action_text_annotate)
         self._apply_tool_mode()
 
     def _on_highlight_toggled(self, checked):
         if checked:
-            self.action_text_annotate.setChecked(False)
-            self.action_form_mode.setChecked(False)
+            self._uncheck_other_tools(self.action_highlight)
+        self._apply_tool_mode()
+
+    def _on_signature_toggled(self, checked):
+        if checked:
+            self._uncheck_other_tools(self.action_signature)
         self._apply_tool_mode()
 
     def _apply_tool_mode(self):
@@ -238,12 +254,15 @@ class MainWindow(QMainWindow):
             mode = "text_annotate"
         elif self.action_highlight.isChecked():
             mode = "highlight"
+        elif self.action_signature.isChecked():
+            mode = "signature"
         self._on_active(lambda v: v.set_tool_mode(mode))
 
     def _on_form_mode_toggled(self, checked):
         if checked:
             self.action_text_annotate.setChecked(False)
             self.action_highlight.setChecked(False)
+            self.action_signature.setChecked(False)
 
         tab = self.tabs.currentWidget()
         if tab is None:

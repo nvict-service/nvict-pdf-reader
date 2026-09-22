@@ -57,3 +57,13 @@ class HighlightAnnotation:
     page_num: int
     quads: list = field(default_factory=list)  # fitz.Quad-objecten, PDF-coördinaten
     xref: int = 0  # PyMuPDF-xref van de live annotatie, voor verwijdering
+
+
+@dataclass
+class SignatureAnnotation:
+    page_num: int
+    pdf_x: float
+    pdf_y: float
+    width: float   # PDF-punten, ongezoomd
+    height: float  # PDF-punten, ongezoomd
+    image_bytes: bytes = b""  # PNG, klaar voor page.insert_image

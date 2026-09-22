@@ -17,14 +17,17 @@ from .annotations import COLOR_MAP
 from .document import get_fitz
 
 
-def build_modified_pdf(file_path, text_annotations, highlight_annotations, pending_rotations=None, form_field_values=None):
+def build_modified_pdf(file_path, text_annotations, highlight_annotations, pending_rotations=None,
+                        form_field_values=None, signature_annotations=None):
     """Open het originele bestand vers vanaf schijf en voeg wijzigingen toe.
 
     Geeft het pad naar een tempfile terug, of None als er niets te doen was.
     """
     pending_rotations = pending_rotations or {}
     form_field_values = form_field_values or {}
-    if not text_annotations and not highlight_annotations and not pending_rotations and not form_field_values:
+    signature_annotations = signature_annotations or []
+    if not (text_annotations or highlight_annotations or pending_rotations
+            or form_field_values or signature_annotations):
         return None
 
     fitz = get_fitz()
@@ -75,6 +78,17 @@ def build_modified_pdf(file_path, text_annotations, highlight_annotations, pendi
                 annot_obj = page.add_highlight_annot(quads=highlight.quads)
                 annot_obj.update()
 
+        for signature in signature_annotations:
+            page = doc[signature.page_num]
+            rect = fitz.Rect(
+                signature.pdf_x, signature.pdf_y,
+                signature.pdf_x + signature.width, signature.pdf_y + signature.height,
+            )
+            # Geen apart annotatie-object (PyMuPDF heeft geen add_image_annot) -
+            # de afbeelding wordt in de paginainhoud "gebrand", zoals de
+            # meeste eenvoudige PDF-handtekentools dat doen.
+            page.insert_image(rect, stream=signature.image_bytes)
+
         base_name = os.path.splitext(os.path.basename(file_path))[0]
         tmp = tempfile.NamedTemporaryFile(suffix=".pdf", prefix=f"{base_name}_bewerkt_", delete=False)
         tmp_path = tmp.name
@@ -100,7 +114,7 @@ def save_as(parent, tab) -> bool:
     try:
         tmp_path = build_modified_pdf(
             tab.file_path, view.text_annotations, view.highlight_annotations,
-            view.pending_rotations, view.form_field_values,
+            view.pending_rotations, view.form_field_values, view.signature_annotations,
         )
         if tmp_path is None:
             return False
@@ -126,7 +140,8 @@ def confirm_discard_unsaved(parent, view, action_description) -> bool:
         return True
     reply = QMessageBox.question(
         parent, "Niet-opgeslagen wijzigingen",
-        "Er zijn nog niet-opgeslagen tekst-annotaties, markeringen, paginarotaties of "
-        f"formuliergegevens op dit tabblad. Deze worden niet meegenomen in {action_description}.\n\nDoorgaan?",
+        "Er zijn nog niet-opgeslagen tekst-annotaties, markeringen, paginarotaties, "
+        f"formuliergegevens of handtekeningen op dit tabblad. Deze worden niet meegenomen "
+        f"in {action_description}.\n\nDoorgaan?",
     )
     return reply == QMessageBox.StandardButton.Yes
