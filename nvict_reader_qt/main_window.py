@@ -7,7 +7,6 @@ naar self.get_active_tab().
 """
 
 import os
-from pathlib import Path
 
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QAction, QIcon, QKeySequence, QPageLayout
@@ -26,14 +25,13 @@ from . import document_tools, print_backend, save_pdf, settings, theme
 from .document_tools_dialogs import ExportPagesDialog, MergePdfsDialog, RotatePagesDialog
 from .pdf_tab import PdfTabWidget
 from .print_dialog import PrintDialog
+from .resources import get_resource_path
 from .settings_dialog import SettingsDialog
-
-ICONS_DIR = Path(__file__).resolve().parent.parent / "icons"
 
 
 def _icon(name: str) -> QIcon:
-    path = ICONS_DIR / name
-    return QIcon(str(path)) if path.exists() else QIcon()
+    path = get_resource_path(os.path.join("icons", name))
+    return QIcon(path) if os.path.exists(path) else QIcon()
 
 
 class MainWindow(QMainWindow):
@@ -42,6 +40,9 @@ class MainWindow(QMainWindow):
         self.setWindowTitle("NVict Reader")
         self.resize(1366, 768)
         self.setMinimumSize(800, 600)
+        favicon_path = get_resource_path("favicon.ico")
+        if os.path.exists(favicon_path):
+            self.setWindowIcon(QIcon(favicon_path))
 
         self.tabs = QTabWidget(self)
         self.tabs.setTabsClosable(True)
