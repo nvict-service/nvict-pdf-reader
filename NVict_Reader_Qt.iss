@@ -203,10 +203,24 @@ begin
   end;
 end;
 
+procedure ForceCloseRunningApp();
+var
+  ResultCode: Integer;
+begin
+  // Extra vangnet naast CloseApplications=yes hierboven: als een oude
+  // (of hangende) instance de exe/DLL's nog open heeft, faalt het
+  // overschrijven ervan met "Toegang geweigerd" (code 5) - taskkill
+  // dwingt het proces alsnog af te sluiten. Geen fout als er niets
+  // draait (taskkill faalt dan stil, ResultCode wordt genegeerd).
+  Exec(ExpandConstant('{sys}\taskkill.exe'), '/F /IM "NVict Reader.exe" /T', '',
+    SW_HIDE, ewWaitUntilTerminated, ResultCode);
+end;
+
 procedure CurStepChanged(CurStep: TSetupStep);
 begin
   if (CurStep=ssInstall) then
   begin
+    ForceCloseRunningApp();
     // Ruim oude PyInstaller temp-mappen op
     CleanupOldMEIFolders();
     if (IsUpgrade()) then
