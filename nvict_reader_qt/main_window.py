@@ -355,8 +355,16 @@ class MainWindow(QMainWindow):
         for menu in (file_menu, view_menu, tools_menu, edit_menu, settings_menu, help_menu):
             menu.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
 
+    # Onder deze breedte past het volledige lint met tekst-onder-icoon niet
+    # meer (natuurlijke breedte ligt rond de 3200px) - dan schakelen we over
+    # op alleen-icoon-knoppen (~1050px), zodat alle knoppen zichtbaar
+    # blijven zonder dat je de Qt-eigen overloop-pijl (">>") moet ontdekken.
+    _TOOLBAR_COMPACT_WIDTH = 1300
+
     def _build_toolbar(self):
         toolbar = self.addToolBar("Hoofdwerkbalk")
+        self._toolbar = toolbar
+        self._toolbar_compact = False
         toolbar.setMovable(False)
         toolbar.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextUnderIcon)
         toolbar.addAction(self.action_open)
@@ -414,6 +422,28 @@ class MainWindow(QMainWindow):
         self.edit_menu_button.setPopupMode(QToolButton.ToolButtonPopupMode.InstantPopup)
         self.edit_menu_button.setMenu(self.edit_menu)
         toolbar.addWidget(self.edit_menu_button)
+
+    def _update_toolbar_style(self):
+        """Schakelt tussen tekst-onder-icoon (breed venster) en alleen-icoon
+        (smal venster) - de knoptekst kost het meeste van de ~3200px die het
+        volledige lint nodig heeft; zonder tekst is dat maar ~1050px, wat op
+        vrijwel elk scherm past. De tooltips blijven de knoptekst tonen."""
+        compact = self.width() < self._TOOLBAR_COMPACT_WIDTH
+        if compact == self._toolbar_compact:
+            return
+        self._toolbar_compact = compact
+        style = (
+            Qt.ToolButtonStyle.ToolButtonIconOnly
+            if compact
+            else Qt.ToolButtonStyle.ToolButtonTextUnderIcon
+        )
+        self._toolbar.setToolButtonStyle(style)
+        self.tools_menu_button.setToolButtonStyle(style)
+        self.edit_menu_button.setToolButtonStyle(style)
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        self._update_toolbar_style()
 
     def _build_status_bar(self):
         status_bar = self.statusBar()
