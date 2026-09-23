@@ -1,8 +1,22 @@
 # NVict Reader
 
-NVict Reader is een snelle en gebruiksvriendelijke PDF-lezer met ondersteuning voor annotaties, formulieren invullen, verschillende weergavemodi en een modern thema.
+NVict Reader is een snelle en gebruiksvriendelijke PDF-lezer met ondersteuning voor annotaties, formulieren invullen, handtekeningen, zoeken, verschillende weergavemodi en een modern licht/donker thema. Sinds versie 3.0 gebouwd op PySide6 (Qt) in plaats van tkinter.
 
 ---
+
+## 🚀 Nieuw in Versie 3.0 — Volledig vernieuwd
+
+NVict Reader is van de grond af herbouwd op een moderne technische basis (PySide6/Qt in plaats van tkinter): modernere dialogen, betere ondersteuning voor kleine/hoge-resolutie-schermen, en een aantal geheel nieuwe functies.
+
+* **Zoeken in het document**: Zoek een woord of zin (`Ctrl+F`). Springt naar de eerste treffer vanaf de huidige pagina en markeert alle treffers op die pagina.
+* **Ongedaan maken**: De laatste actie (tekst toevoegen, markeren, roteren, handtekening plaatsen) direct terugdraaien met `Ctrl+Z`.
+* **Handtekening plaatsen**: Teken een handtekening met de muis of upload een afbeelding, plaats hem op de pagina, versleep of verwijder hem — puur visueel, geen digitale ondertekening.
+* **Boekweergave en volledig scherm**: Twee pagina's naast elkaar zoals een opengeslagen boek, of het document schermvullend zonder menu's (`F11`).
+* **Welkomscherm met recente bestanden**: Bij het opstarten zonder open document zie je direct de laatst geopende bestanden.
+* **Modernere dialogen**: Print-, exporteer-, samenvoeg- en instellingen-dialogen opnieuw ontworpen; menu's met afgeronde hoeken; kleur kiezen via een standaard kleurenkiezer.
+* **Duidelijker wat wel en niet kan**: Knoppen zonder effect op dit moment worden nu duidelijk uitgegrijsd.
+* **Documentinformatie in de statusbalk**: Bestandsnaam, paginanummer en beveiligingsstatus (wachtwoord/rechten/ondertekening); volledige metadata via Help → PDF-informatie.
+* **Betrouwbaarder verzenden per e-mail**: Doorsturen als bijlage gebruikt nu een directere, stabielere koppeling met het e-mailprogramma.
 
 ## 🚀 Nieuw in Versie 2.5
 
@@ -77,11 +91,18 @@ NVict Reader is een snelle en gebruiksvriendelijke PDF-lezer met ondersteuning v
 
 | Actie | Sneltoets |
 | :--- | :--- |
-| **Opslaan** | `Ctrl + S` |
-| **Pagina-paneel (Thumbnails)** | `Ctrl + T` |
-| **Markeermodus aan/uit** | `Ctrl + H` |
-| **Boek-modus aan/uit** | `Ctrl + B` |
+| **Openen** | `Ctrl + O` |
+| **Opslaan als** | `Ctrl + S` |
+| **Afdrukken** | `Ctrl + P` |
+| **Zoeken** | `Ctrl + F` |
+| **Ongedaan maken** | `Ctrl + Z` |
+| **Kopiëren** | `Ctrl + C` |
+| **Hulpmiddel uitzetten** | `Esc` |
 | **Volledig scherm** | `F11` |
+| **Vorige / volgende pagina** | `Page Up` / `Page Down` |
+| **Eerste / laatste pagina** | `Ctrl + Home` / `Ctrl + End` |
+| **Inzoomen / uitzoomen** | `Ctrl + =` / `Ctrl + -` |
+| **Passend maken op breedte** | `Ctrl + 0` |
 
 ---
 
