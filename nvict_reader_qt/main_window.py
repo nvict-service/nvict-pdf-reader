@@ -131,6 +131,10 @@ class MainWindow(QMainWindow):
         self.action_rotate_pages = QAction(_icon("reset.png"), "Pagina &roteren...", self)
         self.action_rotate_pages.triggered.connect(self._rotate_pages_current)
 
+        self.action_copy_text = QAction(_icon("copy.png"), "&Kopiëren", self)
+        self.action_copy_text.setShortcut(QKeySequence.StandardKey.Copy)
+        self.action_copy_text.triggered.connect(lambda: self._on_active(lambda v: v.copy_selected_text()))
+
     def _build_menu(self):
         file_menu = self.menuBar().addMenu("&Bestand")
         file_menu.addAction(self.action_open)
@@ -138,6 +142,8 @@ class MainWindow(QMainWindow):
         file_menu.addSeparator()
         file_menu.addAction(self.action_print)
         file_menu.addAction(self.action_save_as)
+        file_menu.addSeparator()
+        file_menu.addAction(self.action_copy_text)
         file_menu.addSeparator()
         file_menu.addAction(self.action_quit)
 
@@ -201,7 +207,7 @@ class MainWindow(QMainWindow):
             self.action_next_page, self.action_last_page, self.action_print,
             self.action_save_as, self.action_text_annotate, self.action_highlight,
             self.action_form_mode, self.action_signature, self.action_export_pages,
-            self.action_merge_pdfs, self.action_rotate_pages,
+            self.action_merge_pdfs, self.action_rotate_pages, self.action_copy_text,
         ):
             action.setEnabled(has_tab)
         self.edit_menu_button.setEnabled(has_tab)

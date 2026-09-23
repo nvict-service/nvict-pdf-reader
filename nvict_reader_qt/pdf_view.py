@@ -7,9 +7,12 @@ lichte placeholder-rects voor niet-zichtbare pagina's zodat de scrollbars
 meteen de juiste documentgrootte kennen.
 """
 
+import webbrowser
+
 from PySide6.QtCore import QBuffer, QIODevice, Qt, QTimer, Signal
 from PySide6.QtGui import QBrush, QColor, QFont, QImage, QPainter, QPen, QPixmap
 from PySide6.QtWidgets import (
+    QApplication,
     QGraphicsItem,
     QGraphicsPixmapItem,
     QGraphicsRectItem,
@@ -17,9 +20,10 @@ from PySide6.QtWidgets import (
     QGraphicsSimpleTextItem,
     QGraphicsView,
     QMenu,
+    QMessageBox,
 )
 
-from . import form_overlay, rendering
+from . import form_overlay, rendering, security
 from .annotations import COLOR_MAP, HIGHLIGHT_COLOR, HighlightAnnotation, SignatureAnnotation, TextAnnotation
 from .document import get_fitz
 from .signature_dialog import SignatureDialog
@@ -32,6 +36,7 @@ DRAG_SELECTION_PEN = QPen(QColor(100, 150, 200, 200))
 FIELD_HIGHLIGHT_BRUSH = QBrush(QColor(208, 232, 255, 110))
 FIELD_HIGHLIGHT_PEN = QPen(QColor(128, 184, 255))
 FORM_WIDGETS_CACHE_PAGES = 20
+LINKS_CACHE_PAGES = 20
 
 _FONT_FAMILY_BY_CODE = {"helv": "Arial", "tiro": "Times New Roman", "cour": "Courier New"}
 
@@ -93,6 +98,9 @@ class PdfGraphicsView(QGraphicsView):
         self.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
         self.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOn)
         self.setAlignment(Qt.AlignmentFlag.AlignHCenter | Qt.AlignmentFlag.AlignTop)
+        # Nodig zodat mouseMoveEvent ook zonder ingedrukte knop binnenkomt,
+        # voor de link-hovercursor (fase 6).
+        self.setMouseTracking(True)
 
         self.pdf_document = None
         self.file_path = None
@@ -137,6 +145,12 @@ class PdfGraphicsView(QGraphicsView):
         # ── Handtekening (fase 5) ──
         self.signature_annotations = []   # list[SignatureAnnotation]
         self._signature_overlay_items = []  # list[_SignatureItem]
+
+        # ── Tekstselectie & hyperlinks (fase 6) ──
+        self._selected_text = ""
+        self._selection_overlay_items = []  # list[QGraphicsRectItem], blijft staan tot nieuwe sleep/render
+        self._links_cache = {}              # page_num -> list[dict], lazy per pagina
+        self._hovering_link = False
 
     def has_unsaved_changes(self):
         return (
@@ -230,6 +244,10 @@ class PdfGraphicsView(QGraphicsView):
         self._field_highlight_items = {}
         self.signature_annotations = []
         self._signature_overlay_items = []
+        self._selected_text = ""
+        self._selection_overlay_items = []
+        self._links_cache = {}
+        self._hovering_link = False
 
     # ── Layout & rendering ───────────────────────────────────────────
 
@@ -249,6 +267,10 @@ class PdfGraphicsView(QGraphicsView):
         self._radio_groups = {}
         self._field_highlight_items = {}
         self._signature_overlay_items = []
+        # Zelfde reset als tkinter's display_page (tab.selected_text = ""):
+        # een volledige her-render (zoom/navigatie) wist de tekstselectie.
+        self._selected_text = ""
+        self._selection_overlay_items = []
 
         layout, total_width, total_height = rendering.compute_page_layout(self.pdf_document, self.zoom_level)
         self.page_layout = layout
@@ -624,6 +646,124 @@ class PdfGraphicsView(QGraphicsView):
             if chosen == remove_action:
                 self._remove_signature(annotation, item)
 
+    # ── Hyperlinks (fase 6) ──────────────────────────────────────────────
+
+    def _links_for_page(self, page_num):
+        links = self._links_cache.get(page_num)
+        if links is None:
+            links = list(self.pdf_document[page_num].get_links())
+            self._links_cache[page_num] = links
+            rendering.trim_page_cache(self._links_cache, keep=[page_num], anchor=self.current_page,
+                                       max_pages=LINKS_CACHE_PAGES)
+        return links
+
+    def _link_at_scene_pos(self, scene_pos):
+        entry = self._page_at_scene_pos(scene_pos)
+        if entry is None:
+            return None
+        pdf_x = (scene_pos.x() - entry.x) / self.zoom_level
+        pdf_y = (scene_pos.y() - entry.y) / self.zoom_level
+        for link in self._links_for_page(entry.page_num):
+            rect = link.get("from")
+            if rect is not None and rect.x0 <= pdf_x <= rect.x1 and rect.y0 <= pdf_y <= rect.y1:
+                return link
+        return None
+
+    def _handle_link_click(self, link):
+        uri = link.get("uri")
+        if uri:
+            self._open_external_link(uri)
+            return
+        target_page = link.get("page")
+        if target_page is not None and target_page >= 0:
+            self.go_to_page(target_page)
+
+    def _open_external_link(self, uri):
+        if not security.is_safe_link_url(uri):
+            QMessageBox.warning(
+                self, "Link geblokkeerd",
+                "Deze link is niet geopend omdat het geen gewone web- of e-mailkoppeling is.\n\n"
+                "Alleen http, https en mailto worden toegestaan.",
+            )
+            return
+
+        box = QMessageBox(self)
+        box.setWindowTitle("Link openen")
+        box.setText("Weet je zeker dat je deze link wilt openen?")
+        box.setInformativeText(security.shorten_for_display(uri))
+        box.setStandardButtons(QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No)
+        box.setDefaultButton(QMessageBox.StandardButton.No)
+        if box.exec() == QMessageBox.StandardButton.Yes:
+            try:
+                webbrowser.open(uri)
+            except Exception as exc:
+                QMessageBox.critical(self, "Fout", f"Kan de link niet openen:\n{exc}")
+
+    # ── Tekstselectie & kopiëren (fase 6) ────────────────────────────────
+
+    def copy_selected_text(self):
+        if self._selected_text:
+            QApplication.clipboard().setText(self._selected_text)
+
+    def _clear_text_selection(self):
+        for item in self._selection_overlay_items:
+            self.scene().removeItem(item)
+        self._selection_overlay_items = []
+        self._selected_text = ""
+
+    def _handle_text_select_release(self, scene_pos):
+        if self._drag_rect_item is not None:
+            self.scene().removeItem(self._drag_rect_item)
+            self._drag_rect_item = None
+        if self._drag_start_scene is None:
+            return
+
+        left = min(self._drag_start_scene.x(), scene_pos.x())
+        right = max(self._drag_start_scene.x(), scene_pos.x())
+        top = min(self._drag_start_scene.y(), scene_pos.y())
+        bottom = max(self._drag_start_scene.y(), scene_pos.y())
+        self._drag_start_scene = None
+
+        selected_words = []  # (text, wx0, wy0, wx1, wy1) in scene-coördinaten
+        for entry in self.page_layout:
+            page_right = entry.x + entry.width
+            page_bottom = entry.y + entry.height
+            if entry.x > right or page_right < left or entry.y > bottom or page_bottom < top:
+                continue
+            for word in self._words_for_page(entry.page_num):
+                wx0 = entry.x + word.x0 * self.zoom_level
+                wy0 = entry.y + word.y0 * self.zoom_level
+                wx1 = entry.x + word.x1 * self.zoom_level
+                wy1 = entry.y + word.y1 * self.zoom_level
+                if wx1 < left or wx0 > right or wy1 < top or wy0 > bottom:
+                    continue
+                selected_words.append((word.text, wx0, wy0, wx1, wy1))
+
+        if not selected_words:
+            return
+
+        # Sorteer leesvolgorde: eerst op regel (y), dan van links naar rechts.
+        selected_words.sort(key=lambda w: (round(w[2]), w[1]))
+        text_parts = []
+        last_y = None
+        for text, wx0, wy0, wx1, wy1 in selected_words:
+            if last_y is not None and abs(wy0 - last_y) > 5:
+                text_parts.append("\n")
+            elif text_parts:
+                text_parts.append(" ")
+            text_parts.append(text)
+            last_y = wy0
+
+            rect_item = QGraphicsRectItem(0, 0, wx1 - wx0, wy1 - wy0)
+            rect_item.setPos(wx0, wy0)
+            rect_item.setBrush(DRAG_SELECTION_BRUSH)
+            rect_item.setPen(DRAG_SELECTION_PEN)
+            rect_item.setZValue(3)
+            self.scene().addItem(rect_item)
+            self._selection_overlay_items.append(rect_item)
+
+        self._selected_text = "".join(text_parts).strip()
+
     # ── Formuliervelden (fase 4) ────────────────────────────────────────
 
     def _widgets_for_page(self, page_num):
@@ -823,18 +963,45 @@ class PdfGraphicsView(QGraphicsView):
                     return
                 self._handle_signature_click(scene_pos)
                 return
+            if self.tool_mode is None:
+                # Normale modus: eerst linkklik checken (stopt daar, net als
+                # tkinter's on_click), anders een nieuwe tekstselectie starten.
+                link = self._link_at_scene_pos(scene_pos)
+                if link is not None:
+                    self._clear_text_selection()
+                    self._handle_link_click(link)
+                    return
+                self._clear_text_selection()
+                self._handle_highlight_press(scene_pos)  # zelfde sleep-rechthoek-opzet
+                return
 
         super().mousePressEvent(event)
 
     def mouseMoveEvent(self, event):
-        if self.tool_mode == "highlight" and self._drag_rect_item is not None:
-            self._handle_highlight_move(self.mapToScene(event.position().toPoint()))
+        scene_pos = self.mapToScene(event.position().toPoint())
+
+        if self._drag_rect_item is not None:
+            self._handle_highlight_move(scene_pos)
             return
+
+        if self.tool_mode is None and self.pdf_document:
+            hovering = self._link_at_scene_pos(scene_pos) is not None
+            if hovering != self._hovering_link:
+                self._hovering_link = hovering
+                if hovering:
+                    self.setCursor(Qt.CursorShape.PointingHandCursor)
+                else:
+                    self.unsetCursor()
+
         super().mouseMoveEvent(event)
 
     def mouseReleaseEvent(self, event):
-        if self.tool_mode == "highlight" and self._drag_rect_item is not None:
-            self._handle_highlight_release(self.mapToScene(event.position().toPoint()))
+        if self._drag_rect_item is not None:
+            scene_pos = self.mapToScene(event.position().toPoint())
+            if self.tool_mode == "highlight":
+                self._handle_highlight_release(scene_pos)
+            else:
+                self._handle_text_select_release(scene_pos)
             return
         super().mouseReleaseEvent(event)
 
