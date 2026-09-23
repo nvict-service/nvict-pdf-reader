@@ -1,0 +1,40 @@
+# Version-resource voor de PySide6-build (NVict_Reader_Qt.exe).
+# Analoog aan version_info.txt (tkinter-build, auto-gegenereerd door
+# _nvict_build) - dit bestand is voor de Qt-build en wordt vooralsnog
+# handmatig onderhouden, geen build-script genereert dit automatisch.
+#
+# Zonder deze resource toont Windows' eigen native dialogen (zoals de
+# printer-eigenschappen-knop in het printdialoog) de naam van het
+# hostende proces - bij "python -m nvict_reader_qt" dus "Python" i.p.v.
+# "NVict Reader". Met deze resource in de gebouwde .exe verdwijnt dat
+# (geldt alleen voor de gebouwde .exe, niet voor python -m in dev-modus).
+VSVersionInfo(
+  ffi=FixedFileInfo(
+    filevers=(3, 0, 0, 0),
+    prodvers=(3, 0, 0, 0),
+    mask=0x3f,
+    flags=0x0,
+    OS=0x40004,
+    fileType=0x1,
+    subtype=0x0,
+    date=(0, 0),
+  ),
+  kids=[
+    StringFileInfo([
+      StringTable(
+        u'040904B0',
+        [
+          StringStruct(u'CompanyName',      u'NVict Service'),
+          StringStruct(u'FileDescription',  u'NVict Reader'),
+          StringStruct(u'FileVersion',      u'3.0.0.0'),
+          StringStruct(u'InternalName',     u'NVictReaderQt'),
+          StringStruct(u'LegalCopyright',   u'Copyright 2026 NVict Service'),
+          StringStruct(u'OriginalFilename', u'NVict_Reader_Qt.exe'),
+          StringStruct(u'ProductName',      u'NVict Reader'),
+          StringStruct(u'ProductVersion',   u'3.0.0.0'),
+        ]
+      )
+    ]),
+    VarFileInfo([VarStruct(u'Translation', [1033, 1200])])
+  ]
+)

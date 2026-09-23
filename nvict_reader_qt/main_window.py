@@ -7,31 +7,76 @@ naar self.get_active_tab().
 """
 
 import os
+import webbrowser
+from datetime import datetime
 
 from PySide6.QtCore import Qt
-from PySide6.QtGui import QAction, QIcon, QKeySequence, QPageLayout
+from PySide6.QtGui import QAction, QIcon, QIntValidator, QKeySequence, QPageLayout, QPainter, QPalette, QPixmap
 from PySide6.QtPrintSupport import QPrinter
 from PySide6.QtWidgets import (
     QApplication,
     QFileDialog,
+    QLabel,
+    QLineEdit,
     QMainWindow,
     QMessageBox,
     QProgressDialog,
+    QStackedWidget,
     QTabWidget,
     QToolButton,
 )
 
-from . import document_tools, print_backend, save_pdf, settings, theme
+from . import document_tools, email_sender, print_backend, save_pdf, settings, theme, update_checker
+from .about_dialog import AboutDialog
 from .document_tools_dialogs import ExportPagesDialog, MergePdfsDialog, RotatePagesDialog
+from .fullscreen_view import FullscreenWindow
+from .icon_utils import invert_icon_colors
 from .pdf_tab import PdfTabWidget
 from .print_dialog import PrintDialog
 from .resources import get_resource_path
+from .search_dialog import SearchDialog
 from .settings_dialog import SettingsDialog
+from .welcome_widget import WelcomeWidget
+
+SOFTWARE_URL = "https://nvict.nl/software-download"
+
+
+def _is_dark_theme() -> bool:
+    app = QApplication.instance()
+    if app is None:
+        return False
+    return app.palette().color(QPalette.ColorRole.Window).lightness() < 128
+
+
+def _faded_pixmap(pixmap: QPixmap, opacity: float = 0.35) -> QPixmap:
+    """Maak een duidelijk uitgegrijsde variant voor QIcon.Mode.Disabled.
+
+    Qt's automatisch gegenereerde disabled-icoon is op een donkere
+    werkbalk te subtiel om te zien (testfeedback: onduidelijk welke
+    knoppen momenteel niets doen) - deze variant is altijd zichtbaar
+    minder opvallend, in elk thema.
+    """
+    faded = QPixmap(pixmap.size())
+    faded.setDevicePixelRatio(pixmap.devicePixelRatio())
+    faded.fill(Qt.GlobalColor.transparent)
+    painter = QPainter(faded)
+    painter.setOpacity(opacity)
+    painter.drawPixmap(0, 0, pixmap)
+    painter.end()
+    return faded
 
 
 def _icon(name: str) -> QIcon:
     path = get_resource_path(os.path.join("icons", name))
-    return QIcon(path) if os.path.exists(path) else QIcon()
+    if not os.path.exists(path):
+        return QIcon()
+    pixmap = QPixmap(path)
+    if _is_dark_theme():
+        pixmap = invert_icon_colors(pixmap)
+    icon = QIcon()
+    icon.addPixmap(pixmap, QIcon.Mode.Normal)
+    icon.addPixmap(_faded_pixmap(pixmap), QIcon.Mode.Disabled)
+    return icon
 
 
 class MainWindow(QMainWindow):
@@ -44,17 +89,29 @@ class MainWindow(QMainWindow):
         if os.path.exists(favicon_path):
             self.setWindowIcon(QIcon(favicon_path))
 
+        self._thumbnails_visible = settings.get_show_thumbnails_default()
+        self._fullscreen_window = None
+
         self.tabs = QTabWidget(self)
         self.tabs.setTabsClosable(True)
         self.tabs.setMovable(True)
         self.tabs.tabCloseRequested.connect(self._close_tab)
         self.tabs.currentChanged.connect(self._on_tab_changed)
-        self.setCentralWidget(self.tabs)
+
+        self.welcome_widget = WelcomeWidget(self)
+        self.welcome_widget.file_chosen.connect(self.open_file)
+
+        self.central_stack = QStackedWidget(self)
+        self.central_stack.addWidget(self.welcome_widget)
+        self.central_stack.addWidget(self.tabs)
+        self.setCentralWidget(self.central_stack)
 
         self._build_actions()
         self._build_menu()
         self._build_toolbar()
+        self._build_status_bar()
         self._update_actions_enabled()
+        self._update_central_widget()
 
         settings.restore_window_state(self)
 
@@ -109,6 +166,23 @@ class MainWindow(QMainWindow):
         self.action_save_as.setShortcut(QKeySequence.StandardKey.Save)
         self.action_save_as.triggered.connect(self._save_as_current)
 
+        # "Geen hulpmiddel": expliciete, altijd-zichtbare manier om een
+        # actief hulpmiddel weer uit te zetten - zonder dit was de enige
+        # manier om te stoppen het (niet voor de hand liggende) opnieuw
+        # aanklikken van hetzelfde, allang-aangevinkte menu-item.
+        self.action_select_tool = QAction(_icon("close.png"), "&Geen hulpmiddel (Esc)", self)
+        self.action_select_tool.setCheckable(True)
+        self.action_select_tool.setChecked(True)
+        self.action_select_tool.toggled.connect(self._on_select_tool_toggled)
+
+        # Onzichtbare actie enkel voor de Escape-sneltoets - los van het
+        # zichtbare menu-item, zodat hem indrukken terwijl al geen
+        # hulpmiddel actief is geen ongewenste toggle veroorzaakt.
+        self.action_escape_tool = QAction(self)
+        self.action_escape_tool.setShortcut(QKeySequence(Qt.Key.Key_Escape))
+        self.action_escape_tool.triggered.connect(self._deactivate_tools)
+        self.addAction(self.action_escape_tool)
+
         self.action_text_annotate = QAction(_icon("type-text.png"), "&Tekst toevoegen", self)
         self.action_text_annotate.setCheckable(True)
         self.action_text_annotate.toggled.connect(self._on_text_annotate_toggled)
@@ -125,7 +199,7 @@ class MainWindow(QMainWindow):
         self.action_signature.setCheckable(True)
         self.action_signature.toggled.connect(self._on_signature_toggled)
 
-        self.action_export_pages = QAction(_icon("pages.png"), "Pagina's &exporteren...", self)
+        self.action_export_pages = QAction(_icon("pdf.png"), "Pagina's &exporteren...", self)
         self.action_export_pages.triggered.connect(self._export_pages_current)
 
         self.action_merge_pdfs = QAction(_icon("copy.png"), "PDF's &samenvoegen...", self)
@@ -141,6 +215,85 @@ class MainWindow(QMainWindow):
         self.action_settings = QAction("&Instellingen...", self)
         self.action_settings.triggered.connect(self._open_settings)
 
+        self.action_check_updates = QAction("Controleren op &updates...", self)
+        self.action_check_updates.triggered.connect(lambda: update_checker.check_for_updates(self, silent=False))
+
+        self.action_pdf_info = QAction("&PDF-informatie...", self)
+        self.action_pdf_info.triggered.connect(self._show_pdf_info)
+
+        self.action_about = QAction("&Over NVict Reader...", self)
+        self.action_about.triggered.connect(self._show_about)
+
+        # "book.png" (paginaminiaturen -> pages.png) komt hierdoor vrij voor
+        # de nieuwe boek-modus-knop hieronder.
+        self.action_toggle_thumbnails = QAction(_icon("pages.png"), "&Pagina's", self)
+        self.action_toggle_thumbnails.setCheckable(True)
+        self.action_toggle_thumbnails.setChecked(self._thumbnails_visible)
+        self.action_toggle_thumbnails.toggled.connect(self._on_toggle_thumbnails)
+
+        self.action_send = QAction(_icon("send.png"), "&Verzenden...", self)
+        self.action_send.triggered.connect(self._send_current)
+
+        # Hergebruikt reset.png (cirkelpijl) - past semantisch net zo goed
+        # bij "ongedaan maken" als bij "roteren", zelfde icoon-hergebruik-
+        # patroon als copy.png elders in deze dict.
+        self.action_undo = QAction(_icon("reset.png"), "&Ongedaan maken", self)
+        self.action_undo.setShortcut("Ctrl+Z")
+        self.action_undo.triggered.connect(lambda: self._on_active(lambda v: v.undo()))
+
+        self.action_search = QAction(_icon("search.png"), "&Zoeken...", self)
+        self.action_search.setShortcut("Ctrl+F")
+        self.action_search.triggered.connect(self._open_search)
+
+        self.action_book_mode = QAction(_icon("book.png"), "&Boekweergave", self)
+        self.action_book_mode.setCheckable(True)
+        self.action_book_mode.toggled.connect(lambda checked: self._on_active(lambda v: v.toggle_book_mode()))
+
+        self.action_fullscreen = QAction(_icon("full-screen.png"), "&Volledig scherm", self)
+        self.action_fullscreen.setShortcut("F11")
+        self.action_fullscreen.triggered.connect(self._enter_fullscreen)
+
+        # Onthouden welk icoonbestand bij welke actie hoort, zodat na een
+        # thema-wissel alle iconen opnieuw geladen (en zo nodig opnieuw
+        # geïnverteerd) kunnen worden - zie _refresh_icons.
+        self._icon_actions = {
+            self.action_open: "open.png", self.action_zoom_in: "zoom-in.png",
+            self.action_zoom_out: "zoom-out.png", self.action_fit_width: "fit-width.png",
+            self.action_first_page: "first-page.png", self.action_prev_page: "prev-page.png",
+            self.action_next_page: "next-page.png", self.action_last_page: "last-page.png",
+            self.action_print: "print.png", self.action_save_as: "save.png",
+            self.action_text_annotate: "type-text.png", self.action_highlight: "marker.png",
+            self.action_form_mode: "form.png", self.action_signature: "check.png",
+            self.action_select_tool: "close.png",
+            self.action_merge_pdfs: "copy.png",
+            self.action_rotate_pages: "reset.png", self.action_copy_text: "copy.png",
+            self.action_toggle_thumbnails: "pages.png", self.action_send: "send.png",
+            self.action_search: "search.png", self.action_book_mode: "book.png",
+            self.action_fullscreen: "full-screen.png", self.action_undo: "reset.png",
+            self.action_export_pages: "pdf.png",
+        }
+
+    def _refresh_icons(self):
+        """Herlaad alle actie-iconen - nodig na een thema-wissel zodat de
+        donker-thema-inversie (zie icon_utils.py) opnieuw wordt toegepast."""
+        for action, name in self._icon_actions.items():
+            action.setIcon(_icon(name))
+        self.edit_menu_button.setIcon(_icon("toolbox.png"))
+        self.tools_menu_button.setIcon(_icon("toolbox.png"))
+        self._style_toolbar_labels()
+
+    def _style_toolbar_labels(self):
+        """Forceer de tekstkleur van kale QLabels op de werkbalk.
+
+        Fusion geeft een los met `addWidget` toegevoegde QLabel een eigen
+        "WindowText"-kleur die niet meeloopt met de rest van het lint
+        (bleef wit/grijs, los van het thema) - expliciet zetten lost dat
+        op, in plaats van te vertrouwen op QSS-overerving die hier niet
+        werkt zoals bij QToolButton/QAction.
+        """
+        colors = theme.resolve_theme(settings.get_theme_mode())
+        self.page_count_label.setStyleSheet(f"color: {colors['TEXT_PRIMARY']}; background: transparent;")
+
     def _build_menu(self):
         file_menu = self.menuBar().addMenu("&Bestand")
         file_menu.addAction(self.action_open)
@@ -148,12 +301,20 @@ class MainWindow(QMainWindow):
         file_menu.addSeparator()
         file_menu.addAction(self.action_print)
         file_menu.addAction(self.action_save_as)
+        file_menu.addAction(self.action_send)
         file_menu.addSeparator()
+        file_menu.addAction(self.action_undo)
         file_menu.addAction(self.action_copy_text)
         file_menu.addSeparator()
         file_menu.addAction(self.action_quit)
 
         view_menu = self.menuBar().addMenu("&Beeld")
+        view_menu.addAction(self.action_toggle_thumbnails)
+        view_menu.addAction(self.action_book_mode)
+        view_menu.addAction(self.action_fullscreen)
+        view_menu.addSeparator()
+        view_menu.addAction(self.action_search)
+        view_menu.addSeparator()
         view_menu.addAction(self.action_zoom_in)
         view_menu.addAction(self.action_zoom_out)
         view_menu.addAction(self.action_fit_width)
@@ -163,11 +324,14 @@ class MainWindow(QMainWindow):
         view_menu.addAction(self.action_next_page)
         view_menu.addAction(self.action_last_page)
 
-        annotate_menu = self.menuBar().addMenu("&Annotaties")
-        annotate_menu.addAction(self.action_text_annotate)
-        annotate_menu.addAction(self.action_highlight)
-        annotate_menu.addAction(self.action_form_mode)
-        annotate_menu.addAction(self.action_signature)
+        tools_menu = self.menuBar().addMenu("&Hulpmiddelen")
+        tools_menu.addAction(self.action_select_tool)
+        tools_menu.addSeparator()
+        tools_menu.addAction(self.action_text_annotate)
+        tools_menu.addAction(self.action_highlight)
+        tools_menu.addAction(self.action_form_mode)
+        tools_menu.addAction(self.action_signature)
+        self.tools_menu = tools_menu
 
         edit_menu = self.menuBar().addMenu("&Bewerken")
         edit_menu.addAction(self.action_export_pages)
@@ -178,48 +342,128 @@ class MainWindow(QMainWindow):
         settings_menu = self.menuBar().addMenu("&Instellingen")
         settings_menu.addAction(self.action_settings)
 
+        help_menu = self.menuBar().addMenu("&Help")
+        help_menu.addAction(self.action_pdf_info)
+        help_menu.addSeparator()
+        help_menu.addAction(self.action_check_updates)
+        help_menu.addSeparator()
+        help_menu.addAction(self.action_about)
+
+        # Afgeronde hoeken (QSS border-radius op QMenu) tonen anders
+        # scherpe randen buiten de afgeronde vorm, omdat het onderliggende
+        # popup-venster zelf nog rechthoekig blijft zonder deze vlag.
+        for menu in (file_menu, view_menu, tools_menu, edit_menu, settings_menu, help_menu):
+            menu.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
+
     def _build_toolbar(self):
         toolbar = self.addToolBar("Hoofdwerkbalk")
         toolbar.setMovable(False)
+        toolbar.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextUnderIcon)
         toolbar.addAction(self.action_open)
         toolbar.addAction(self.action_print)
         toolbar.addAction(self.action_save_as)
+        toolbar.addAction(self.action_send)
+        toolbar.addAction(self.action_search)
         toolbar.addSeparator()
         toolbar.addAction(self.action_first_page)
         toolbar.addAction(self.action_prev_page)
         toolbar.addAction(self.action_next_page)
         toolbar.addAction(self.action_last_page)
+
+        # Platte tekstinvoer + Enter, net als de oude tkinter-versie (géén
+        # spinner-knoppen: die navigeerden pas na focusverlies, niet direct
+        # bij een klik, wat verwarrend aanvoelde - zie testfeedback).
+        self.page_goto_edit = QLineEdit(toolbar)
+        self.page_goto_edit.setFixedWidth(40)
+        self.page_goto_edit.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.page_goto_edit.setValidator(QIntValidator(1, 999999, self))
+        self.page_goto_edit.setToolTip("Ga naar pagina")
+        self.page_goto_edit.returnPressed.connect(self._on_page_goto_changed)
+        toolbar.addWidget(self.page_goto_edit)
+        self.page_count_label = QLabel("/ 0", toolbar)
+        self.page_count_label.setContentsMargins(4, 0, 8, 0)
+        toolbar.addWidget(self.page_count_label)
+
+        toolbar.addSeparator()
+        toolbar.addAction(self.action_toggle_thumbnails)
+        toolbar.addAction(self.action_book_mode)
         toolbar.addSeparator()
         toolbar.addAction(self.action_zoom_out)
         toolbar.addAction(self.action_zoom_in)
         toolbar.addAction(self.action_fit_width)
+        toolbar.addAction(self.action_fullscreen)
         toolbar.addSeparator()
-        toolbar.addAction(self.action_text_annotate)
-        toolbar.addAction(self.action_highlight)
-        toolbar.addAction(self.action_form_mode)
-        toolbar.addAction(self.action_signature)
+        toolbar.addAction(self.action_undo)
+        toolbar.addAction(self.action_copy_text)
         toolbar.addSeparator()
+
+        self._style_toolbar_labels()
+
+        self.tools_menu_button = QToolButton(toolbar)
+        self.tools_menu_button.setIcon(_icon("toolbox.png"))
+        self.tools_menu_button.setText("Hulpmiddelen ▼")
+        self.tools_menu_button.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextUnderIcon)
+        self.tools_menu_button.setPopupMode(QToolButton.ToolButtonPopupMode.InstantPopup)
+        self.tools_menu_button.setMenu(self.tools_menu)
+        toolbar.addWidget(self.tools_menu_button)
 
         self.edit_menu_button = QToolButton(toolbar)
         self.edit_menu_button.setIcon(_icon("toolbox.png"))
-        self.edit_menu_button.setText("Bewerken")
-        self.edit_menu_button.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonIconOnly)
+        self.edit_menu_button.setText("Bewerken ▼")
+        self.edit_menu_button.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextUnderIcon)
         self.edit_menu_button.setPopupMode(QToolButton.ToolButtonPopupMode.InstantPopup)
         self.edit_menu_button.setMenu(self.edit_menu)
         toolbar.addWidget(self.edit_menu_button)
 
+    def _build_status_bar(self):
+        status_bar = self.statusBar()
+
+        self.doc_info_label = QLabel("Geen document geopend", status_bar)
+        status_bar.addWidget(self.doc_info_label)
+
+        copyright_label = QLabel(f"© {datetime.now().year} NVict Service - www.nvict.nl", status_bar)
+        copyright_label.setCursor(Qt.CursorShape.PointingHandCursor)
+        copyright_label.mousePressEvent = lambda _event: webbrowser.open(SOFTWARE_URL)
+        status_bar.addPermanentWidget(copyright_label)
+
+    def _update_doc_info_label(self):
+        tab = self.tabs.currentWidget()
+        if tab is None or not tab.view.pdf_document:
+            self.doc_info_label.setText("Geen document geopend")
+            return
+        text = f"{tab.title}  —  pagina {tab.view.current_page + 1} / {tab.page_count}"
+        if tab.view.security_info:
+            text += f"   ·   {tab.view.security_info}"
+        self.doc_info_label.setText(text)
+
+    def _update_central_widget(self):
+        if self.tabs.count() == 0:
+            self.welcome_widget.refresh()
+            self.central_stack.setCurrentWidget(self.welcome_widget)
+        else:
+            self.central_stack.setCurrentWidget(self.tabs)
+
     def _update_actions_enabled(self):
         has_tab = self.tabs.count() > 0
+        tab = self.tabs.currentWidget()
+        view = tab.view if tab is not None else None
         for action in (
             self.action_close_tab, self.action_zoom_in, self.action_zoom_out,
             self.action_fit_width, self.action_first_page, self.action_prev_page,
             self.action_next_page, self.action_last_page, self.action_print,
-            self.action_save_as, self.action_text_annotate, self.action_highlight,
-            self.action_form_mode, self.action_signature, self.action_export_pages,
+            self.action_text_annotate, self.action_highlight,
+            self.action_signature, self.action_export_pages,
             self.action_merge_pdfs, self.action_rotate_pages, self.action_copy_text,
+            self.action_toggle_thumbnails, self.action_search, self.action_book_mode,
+            self.action_fullscreen, self.page_goto_edit, self.action_send,
+            self.action_pdf_info,
         ):
             action.setEnabled(has_tab)
         self.edit_menu_button.setEnabled(has_tab)
+        self.tools_menu_button.setEnabled(has_tab)
+        self.action_save_as.setEnabled(has_tab and view is not None and view.has_unsaved_changes())
+        self.action_form_mode.setEnabled(has_tab and view is not None and view._document_has_widgets())
+        self.action_undo.setEnabled(has_tab and view is not None and view.can_undo())
 
     # ── Tab helpers ──────────────────────────────────────────────────
 
@@ -242,11 +486,32 @@ class MainWindow(QMainWindow):
         self.action_form_mode.setChecked(form_active)
         for action in actions:
             action.blockSignals(False)
+        self._sync_select_tool_checked()
+
+        self.action_book_mode.blockSignals(True)
+        self.action_book_mode.setChecked(tab.view.book_mode if tab is not None else False)
+        self.action_book_mode.blockSignals(False)
+
+        self._sync_page_goto(tab)
+        self._update_doc_info_label()
 
     def _uncheck_other_tools(self, keep):
-        for action in (self.action_text_annotate, self.action_highlight, self.action_form_mode, self.action_signature):
+        for action in (
+            self.action_select_tool, self.action_text_annotate,
+            self.action_highlight, self.action_form_mode, self.action_signature,
+        ):
             if action is not keep:
                 action.setChecked(False)
+
+    def _on_select_tool_toggled(self, checked):
+        if checked:
+            self._uncheck_other_tools(self.action_select_tool)
+        self._apply_tool_mode()
+
+    def _deactivate_tools(self):
+        """Escape-sneltoets: zet alle hulpmiddelen (inclusief formulier-
+        invulmodus) direct uit, ongeacht wat er nu actief is."""
+        self.action_select_tool.setChecked(True)
 
     def _on_text_annotate_toggled(self, checked):
         if checked:
@@ -272,15 +537,39 @@ class MainWindow(QMainWindow):
         elif self.action_signature.isChecked():
             mode = "signature"
         self._on_active(lambda v: v.set_tool_mode(mode))
+        self._sync_select_tool_checked()
+
+    def _sync_select_tool_checked(self):
+        """Houd "Geen hulpmiddel" gelijk met de werkelijke staat - ook
+        wanneer een tool-actie zelf (niet via _deactivate_tools) wordt
+        uitgevinkt, bv. door er opnieuw op te klikken in het menu."""
+        none_active = not (
+            self.action_text_annotate.isChecked()
+            or self.action_highlight.isChecked()
+            or self.action_signature.isChecked()
+            or self.action_form_mode.isChecked()
+        )
+        self.action_select_tool.blockSignals(True)
+        self.action_select_tool.setChecked(none_active)
+        self.action_select_tool.blockSignals(False)
+
+    def _on_toggle_thumbnails(self, checked):
+        self._thumbnails_visible = checked
+        for index in range(self.tabs.count()):
+            widget = self.tabs.widget(index)
+            if widget is not None:
+                widget.set_thumbnails_visible(checked)
 
     def _on_form_mode_toggled(self, checked):
         if checked:
             self.action_text_annotate.setChecked(False)
             self.action_highlight.setChecked(False)
             self.action_signature.setChecked(False)
+            self.action_select_tool.setChecked(False)
 
         tab = self.tabs.currentWidget()
         if tab is None:
+            self._sync_select_tool_checked()
             return
 
         if checked:
@@ -293,18 +582,78 @@ class MainWindow(QMainWindow):
                 )
         else:
             tab.view.set_form_mode(False)
+        self._sync_select_tool_checked()
 
     def _close_tab(self, index):
         if index < 0:
             return
         tab = self.tabs.widget(index)
-        if tab is not None and not save_pdf.confirm_discard_unsaved(self, tab.view, "het sluiten van deze tab"):
+        if tab is not None and not save_pdf.confirm_discard_unsaved(self, tab.view):
             return
         self.tabs.removeTab(index)
         if tab is not None:
             tab.close_document()
             tab.deleteLater()
         self._update_actions_enabled()
+        self._update_central_widget()
+
+    # ── Ga naar pagina (toolbar) ─────────────────────────────────────
+
+    def _sync_page_goto(self, tab):
+        count = tab.page_count if tab is not None else 0
+        self.page_goto_edit.setText(str((tab.view.current_page + 1) if tab is not None else 1))
+        self.page_count_label.setText(f"/ {count}")
+
+    def _on_page_goto_changed(self):
+        """Poort van NVict_Reader.py:3055-3065 (go_to_page): bij een ongeldig
+        of buiten-bereik paginanummer wordt het veld gewoon stilzwijgend
+        teruggezet naar de huidige pagina, zonder foutmelding."""
+        tab = self.tabs.currentWidget()
+        if tab is None:
+            return
+        try:
+            page_num = int(self.page_goto_edit.text()) - 1
+        except ValueError:
+            self._sync_page_goto(tab)
+            return
+        if 0 <= page_num < tab.page_count:
+            tab.view.go_to_page(page_num)
+        else:
+            self._sync_page_goto(tab)
+
+    def _on_page_changed_for_tab(self, tab, _page_num):
+        if self.tabs.currentWidget() is tab:
+            self._sync_page_goto(tab)
+            self._update_doc_info_label()
+
+    # ── Zoeken ────────────────────────────────────────────────────────
+
+    def _open_search(self):
+        tab = self.tabs.currentWidget()
+        if tab is None or not tab.view.pdf_document:
+            return
+        dialog = SearchDialog(self)
+        if not dialog.exec():
+            return
+        term = dialog.get_search_term()
+        if not term:
+            return
+        if not tab.view.search(term):
+            QMessageBox.information(self, "Zoeken", f"'{term}' niet gevonden in document")
+
+    # ── Volledig scherm ──────────────────────────────────────────────
+
+    def _enter_fullscreen(self):
+        tab = self.tabs.currentWidget()
+        if tab is None or not tab.view.pdf_document:
+            QMessageBox.information(self, "Geen PDF", "Open eerst een PDF om de presentatiemodus te gebruiken.")
+            return
+
+        def on_close(last_page, source_tab=tab):
+            self._fullscreen_window = None
+            source_tab.view.go_to_page(last_page)
+
+        self._fullscreen_window = FullscreenWindow(tab.view.pdf_document, tab.view.current_page, on_close)
 
     # ── File handling ────────────────────────────────────────────────
 
@@ -319,9 +668,15 @@ class MainWindow(QMainWindow):
         except Exception as exc:
             QMessageBox.critical(self, "Kan PDF niet openen", f"{file_path}\n\n{exc}")
             return
+        tab.set_thumbnails_visible(self._thumbnails_visible)
+        tab.view.stateChanged.connect(self._update_actions_enabled)
+        tab.view.undoAvailable.connect(lambda _available=None: self._update_actions_enabled())
+        tab.view.pageChanged.connect(lambda page_num, t=tab: self._on_page_changed_for_tab(t, page_num))
         index = self.tabs.addTab(tab, tab.title)
         self.tabs.setCurrentIndex(index)
         self._update_actions_enabled()
+        self._update_central_widget()
+        settings.add_recent_file(file_path)
 
     # ── Printen & opslaan ────────────────────────────────────────────
 
@@ -368,6 +723,36 @@ class MainWindow(QMainWindow):
         if tab is not None:
             save_pdf.save_as(self, tab)
 
+    def _send_current(self):
+        tab = self.tabs.currentWidget()
+        if tab is not None:
+            email_sender.send_as_attachment(self, tab)
+
+    # ── Help ─────────────────────────────────────────────────────────
+
+    def _show_pdf_info(self):
+        """Poort van NVict_Reader.py:5057-5073 (show_pdf_info)."""
+        tab = self.tabs.currentWidget()
+        if tab is None or not tab.view.pdf_document:
+            return
+        metadata = tab.view.pdf_document.metadata or {}
+        info_text = (
+            f"Titel: {metadata.get('title') or 'N/A'}\n"
+            f"Auteur: {metadata.get('author') or 'N/A'}\n"
+            f"Onderwerp: {metadata.get('subject') or 'N/A'}\n"
+            f"Trefwoorden: {metadata.get('keywords') or 'N/A'}\n"
+            f"Creator: {metadata.get('creator') or 'N/A'}\n"
+            f"Producer: {metadata.get('producer') or 'N/A'}\n"
+            f"Gemaakt: {metadata.get('creationDate') or 'N/A'}\n"
+            f"Gewijzigd: {metadata.get('modDate') or 'N/A'}\n"
+            f"Pagina's: {tab.page_count}\n"
+            f"Bestandsgrootte: {os.path.getsize(tab.file_path) / 1024:.1f} KB"
+        )
+        QMessageBox.information(self, "PDF-informatie", info_text)
+
+    def _show_about(self):
+        AboutDialog(self, SOFTWARE_URL).exec()
+
     # ── Instellingen ──────────────────────────────────────────────────
 
     def _open_settings(self):
@@ -377,6 +762,12 @@ class MainWindow(QMainWindow):
         mode = dialog.get_theme_mode()
         settings.save_theme_mode(mode)
         theme.apply_theme(QApplication.instance(), mode)
+        self._refresh_icons()
+        self.welcome_widget.refresh()
+
+        show_thumbnails = dialog.get_show_thumbnails_default()
+        settings.save_show_thumbnails_default(show_thumbnails)
+        self.action_toggle_thumbnails.setChecked(show_thumbnails)
 
     # ── Bewerken-menu: exporteren, samenvoegen, roteren ──────────────
 
@@ -384,7 +775,7 @@ class MainWindow(QMainWindow):
         tab = self.tabs.currentWidget()
         if tab is None or not tab.view.pdf_document:
             return
-        if not save_pdf.confirm_discard_unsaved(self, tab.view, "het geëxporteerde bestand"):
+        if not save_pdf.confirm_discard_unsaved(self, tab.view):
             return
 
         dialog = ExportPagesDialog(self, tab.page_count)
@@ -454,7 +845,7 @@ class MainWindow(QMainWindow):
     def closeEvent(self, event):
         for index in range(self.tabs.count()):
             widget = self.tabs.widget(index)
-            if widget is not None and not save_pdf.confirm_discard_unsaved(self, widget.view, "het afsluiten van NVict Reader"):
+            if widget is not None and not save_pdf.confirm_discard_unsaved(self, widget.view):
                 event.ignore()
                 return
 

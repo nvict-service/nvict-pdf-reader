@@ -1,12 +1,14 @@
 # -*- coding: utf-8 -*-
-"""Dialoog om een tekst-annotatie toe te voegen of te bewerken.
+"""Dialoog om tekst op de pagina toe te voegen of te bewerken.
 
 Qt-dialoogvenster in plaats van tkinter's inline canvas-embedded editor
-(regel 4640-4880) - past beter bij de wens "modernere dialogen".
+(regel 4640-4880) - past beter bij de wens "modernere dialogen". Kleur
+kiezen via QColorDialog i.p.v. 4 vaste knoppen (testfeedback fase 9).
 """
 
+from PySide6.QtGui import QColor
 from PySide6.QtWidgets import (
-    QButtonGroup,
+    QColorDialog,
     QComboBox,
     QDialog,
     QDialogButtonBox,
@@ -18,20 +20,20 @@ from PySide6.QtWidgets import (
     QVBoxLayout,
 )
 
-from .annotations import COLOR_CHOICES, DEFAULT_FONT_SIZE, FONT_MAP, MAX_FONT_SIZE, MIN_FONT_SIZE
+from .annotations import DEFAULT_FONT_SIZE, DEFAULT_TEXT_COLOR, FONT_MAP, MAX_FONT_SIZE, MIN_FONT_SIZE
 
 _FONT_NAME_BY_CODE = {v: k for k, v in FONT_MAP.items()}
 
 
 class TextAnnotationDialog(QDialog):
-    """Retourneert via get_result() de ingevoerde annotatiegegevens."""
+    """Retourneert via get_result() de ingevoerde tekst-gegevens."""
 
     def __init__(self, parent=None, existing: dict | None = None):
         super().__init__(parent)
-        self.setWindowTitle("Tekst-annotatie bewerken" if existing else "Tekst-annotatie toevoegen")
+        self.setWindowTitle("Tekst bewerken" if existing else "Tekst toevoegen")
         self.setMinimumWidth(360)
         self._delete_requested = False
-        self._color_value = (existing or {}).get("color", "black")
+        self._color = (existing or {}).get("color", DEFAULT_TEXT_COLOR)
 
         layout = QVBoxLayout(self)
 
@@ -50,17 +52,12 @@ class TextAnnotationDialog(QDialog):
         layout.addLayout(options_row)
 
         color_row = QHBoxLayout()
-        self.color_group = QButtonGroup(self)
-        for label, color_value, bg, fg in COLOR_CHOICES:
-            btn = QPushButton(label, self)
-            btn.setCheckable(True)
-            btn.setStyleSheet(f"background-color: {bg}; color: {fg}; font-weight: bold;")
-            btn.setProperty("color_value", color_value)
-            if color_value == self._color_value:
-                btn.setChecked(True)
-            self.color_group.addButton(btn)
-            color_row.addWidget(btn)
+        color_row.addWidget(QLabel("Kleur:"))
+        self.color_btn = QPushButton("Kleur kiezen...", self)
+        self.color_btn.clicked.connect(self._choose_color)
+        color_row.addWidget(self.color_btn)
         layout.addLayout(color_row)
+        self._update_color_swatch()
 
         self.text_edit = QPlainTextEdit(self)
         self.text_edit.setPlainText((existing or {}).get("text", ""))
@@ -78,6 +75,16 @@ class TextAnnotationDialog(QDialog):
 
         layout.addWidget(buttons)
 
+    def _choose_color(self):
+        color = QColorDialog.getColor(QColor(self._color), self, "Kleur kiezen")
+        if color.isValid():
+            self._color = color.name()
+            self._update_color_swatch()
+
+    def _update_color_swatch(self):
+        fg = "#ffffff" if QColor(self._color).lightness() < 140 else "#000000"
+        self.color_btn.setStyleSheet(f"background-color: {self._color}; color: {fg};")
+
     def _on_delete(self):
         self._delete_requested = True
         self.accept()
@@ -86,11 +93,9 @@ class TextAnnotationDialog(QDialog):
         return self._delete_requested
 
     def get_result(self) -> dict:
-        checked = self.color_group.checkedButton()
-        color_value = checked.property("color_value") if checked else "black"
         return {
             "text": self.text_edit.toPlainText().strip(),
             "font_size": self.size_spin.value(),
-            "color": color_value,
+            "color": self._color,
             "fontname": FONT_MAP.get(self.font_combo.currentText(), "helv"),
         }

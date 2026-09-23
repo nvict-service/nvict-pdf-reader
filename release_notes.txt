@@ -1,3 +1,56 @@
+Versie 3.0 - Volledig vernieuwd
+
+NVict Reader is van de grond af herbouwd op een moderne technische basis
+(PySide6/Qt in plaats van tkinter). Dat betekent modernere dialogen,
+betere ondersteuning voor kleine/hoge-resolutie-schermen, en een aantal
+functies die er nog niet waren.
+
+Nieuw: tekst zoeken in het document
+  Zoek een woord of zin (Ctrl+F of de knop in de werkbalk). Springt naar de
+  eerste treffer vanaf de huidige pagina en markeert alle treffers op die
+  pagina met een oranje omkadering.
+
+Nieuw: ongedaan maken
+  De laatste actie (tekst toevoegen, markeren, roteren, handtekening
+  plaatsen) kan met Ctrl+Z of de knop "Ongedaan maken" direct worden
+  teruggedraaid.
+
+Nieuw: handtekening plaatsen
+  Teken een handtekening met de muis of upload een afbeelding, plaats hem
+  op de pagina, versleep of verwijder hem - wordt bij opslaan in de PDF
+  gebrand. Puur visueel, geen digitale ondertekening.
+
+Nieuw: boekweergave en volledig scherm
+  Boekweergave toont twee pagina's naast elkaar, zoals een opengeslagen
+  boek. Volledig scherm (F11) toont het document schermvullend zonder
+  menu's, met pijltjesnavigatie en Escape om terug te gaan.
+
+Nieuw: welkomscherm met recente bestanden
+  Bij het opstarten zonder open document zie je nu een lijst met de laatst
+  geopende bestanden om direct te heropenen.
+
+Modernere dialogen
+  Print-, exporteer-, samenvoeg- en instellingen-dialogen zijn opnieuw
+  ontworpen en passen beter op kleine of hoog-resolutie-schermen. Menu's
+  hebben nu afgeronde hoeken. Kleur bij tekst-annotaties kiezen kan via een
+  standaard kleurenkiezer i.p.v. vaste knoppen.
+
+Duidelijker wat wel en niet kan
+  Knoppen die op dit moment geen effect hebben (bijvoorbeeld "Opslaan als"
+  zonder wijzigingen, of "Formulier invullen" in een document zonder
+  invulvelden) worden nu duidelijk zichtbaar uitgegrijsd in plaats van
+  gewoon niets te doen.
+
+Documentinformatie in de statusbalk
+  Onderin het venster staat nu de bestandsnaam, het paginanummer en - als
+  van toepassing - of het document wachtwoordbeveiligd, rechten-beperkt of
+  digitaal ondertekend is. Via Help > PDF-informatie is ook de volledige
+  metadata (titel, auteur, aanmaakdatum, bestandsgrootte, ...) op te vragen.
+
+Verzenden per e-mail is weer betrouwbaar
+  Doorsturen als bijlage gebruikt nu een directere, stabielere Windows-
+  koppeling met het e-mailprogramma.
+
 Versie 2.5 - Wat is er nieuw?
 
 Veel sneller bij grote documenten

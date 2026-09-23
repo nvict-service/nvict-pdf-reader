@@ -9,6 +9,7 @@ sinds fase 1 klaarstond maar nog nergens werd aangeroepen.
 
 from PySide6.QtWidgets import (
     QButtonGroup,
+    QCheckBox,
     QDialogButtonBox,
     QGroupBox,
     QLabel,
@@ -45,6 +46,13 @@ class SettingsDialog(QDialog):
             self.theme_buttons[rb] = label
             theme_layout.addWidget(rb)
         layout.addWidget(theme_box)
+
+        view_box = QGroupBox("Weergave", self)
+        view_layout = QVBoxLayout(view_box)
+        self.show_thumbnails_check = QCheckBox("Pagina's (miniaturen) tonen bij het openen van een document", view_box)
+        self.show_thumbnails_check.setChecked(settings.get_show_thumbnails_default())
+        view_layout.addWidget(self.show_thumbnails_check)
+        layout.addWidget(view_box)
 
         default_box = QGroupBox("Standaard PDF-viewer", self)
         default_layout = QVBoxLayout(default_box)
@@ -83,3 +91,6 @@ class SettingsDialog(QDialog):
             if rb.isChecked():
                 return label
         return "Systeemstandaard"
+
+    def get_show_thumbnails_default(self) -> bool:
+        return self.show_thumbnails_check.isChecked()

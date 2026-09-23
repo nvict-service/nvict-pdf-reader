@@ -7,7 +7,7 @@ modaal venster nodig maken. Deze dialoog bevat daarom alle opties in één
 scherm, zoals de tkinter-versie (regel 3120-3529), maar met Qt-widgets.
 """
 
-from PySide6.QtPrintSupport import QPageSetupDialog, QPrinter
+from PySide6.QtPrintSupport import QAbstractPrintDialog, QPrintDialog, QPrinter
 from PySide6.QtWidgets import (
     QButtonGroup,
     QCheckBox,
@@ -77,22 +77,26 @@ class PrintDialog(QDialog):
         layout.addWidget(pages_box)
 
         # ── Opties ──
+        options_box = QGroupBox("Opties", self)
+        options_layout = QVBoxLayout(options_box)
         form = QFormLayout()
         self.copies_spin = QSpinBox(self)
         self.copies_spin.setRange(1, 99)
         self.copies_spin.setValue(1)
         form.addRow("Aantal kopieën:", self.copies_spin)
-        layout.addLayout(form)
+        options_layout.addLayout(form)
 
         self.fit_to_page_check = QCheckBox("Passend maken op pagina", self)
         self.fit_to_page_check.setChecked(True)
-        layout.addWidget(self.fit_to_page_check)
+        options_layout.addWidget(self.fit_to_page_check)
 
         self.duplex_check = QCheckBox("Dubbelzijdig printen", self)
-        layout.addWidget(self.duplex_check)
+        options_layout.addWidget(self.duplex_check)
+        layout.addWidget(options_box)
 
-        color_row = QHBoxLayout()
-        color_row.addWidget(QLabel("Kleur:"))
+        # ── Kleur ──
+        color_box = QGroupBox("Kleur", self)
+        color_row = QHBoxLayout(color_box)
         self.color_group = QButtonGroup(self)
         self.radio_color = QRadioButton("Kleur", self)
         self.radio_color.setChecked(True)
@@ -100,10 +104,11 @@ class PrintDialog(QDialog):
         for rb in (self.radio_color, self.radio_bw):
             self.color_group.addButton(rb)
             color_row.addWidget(rb)
-        layout.addLayout(color_row)
+        layout.addWidget(color_box)
 
-        rotation_row = QHBoxLayout()
-        rotation_row.addWidget(QLabel("Rotatie:"))
+        # ── Rotatie ──
+        rotation_box = QGroupBox("Rotatie", self)
+        rotation_row = QHBoxLayout(rotation_box)
         self.rotation_group = QButtonGroup(self)
         self.rotation_values = {}
         for label, value in [("Geen", 0), ("90° rechts", 90), ("180°", 180), ("90° links", 270)]:
@@ -112,10 +117,11 @@ class PrintDialog(QDialog):
             self.rotation_group.addButton(rb)
             self.rotation_values[rb] = value
             rotation_row.addWidget(rb)
-        layout.addLayout(rotation_row)
+        layout.addWidget(rotation_box)
 
-        orientation_row = QHBoxLayout()
-        orientation_row.addWidget(QLabel("Oriëntatie:"))
+        # ── Oriëntatie ──
+        orientation_box = QGroupBox("Oriëntatie", self)
+        orientation_row = QHBoxLayout(orientation_box)
         self.orientation_group = QButtonGroup(self)
         self.radio_portrait = QRadioButton("Staand", self)
         self.radio_portrait.setChecked(True)
@@ -123,7 +129,7 @@ class PrintDialog(QDialog):
         for rb in (self.radio_portrait, self.radio_landscape):
             self.orientation_group.addButton(rb)
             orientation_row.addWidget(rb)
-        layout.addLayout(orientation_row)
+        layout.addWidget(orientation_box)
 
         buttons = QDialogButtonBox(self)
         self.print_btn = buttons.addButton("Afdrukken", QDialogButtonBox.ButtonRole.AcceptRole)
@@ -133,7 +139,27 @@ class PrintDialog(QDialog):
         layout.addWidget(buttons)
 
     def _open_page_setup(self):
-        QPageSetupDialog(self.printer, self).exec()
+        """Toon de échte, printer-specifieke instellingen (papierbron,
+        afdrukkwaliteit, hardware-duplex, ...).
+
+        QPageSetupDialog (eerder gebruikt) is Qt's generieke, printer-
+        onafhankelijke papier/marges-dialoog - Qt schakelt de native
+        "Eigenschappen"-knop daar bewust in uit, wat exact de melding was
+        die de gebruiker zag. QPrintDialog is wél Qt's eigen mechanisme om
+        de driver-eigen instellingen te tonen én correct terug te
+        schrijven naar dezelfde QPrinter die we al gebruiken om te
+        printen - de pagina-bereik/kopieën-velden daarin schakelen we uit
+        omdat onze eigen dialoog daar al in voorziet.
+        """
+        dialog = QPrintDialog(self.printer, self)
+        for option in (
+            QAbstractPrintDialog.PrintDialogOption.PrintPageRange,
+            QAbstractPrintDialog.PrintDialogOption.PrintCurrentPage,
+            QAbstractPrintDialog.PrintDialogOption.PrintSelection,
+            QAbstractPrintDialog.PrintDialogOption.PrintCollateCopies,
+        ):
+            dialog.setOption(option, False)
+        dialog.exec()
 
     def _on_accept(self):
         pages = self._resolve_pages()

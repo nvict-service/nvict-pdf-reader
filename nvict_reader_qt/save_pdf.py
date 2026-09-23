@@ -13,7 +13,7 @@ import tempfile
 from PySide6.QtWidgets import QFileDialog, QMessageBox
 
 from . import form_overlay
-from .annotations import COLOR_MAP
+from .annotations import hex_to_fitz_rgb
 from .document import get_fitz
 
 
@@ -67,7 +67,7 @@ def build_modified_pdf(file_path, text_annotations, highlight_annotations, pendi
             annot_obj = page.add_freetext_annot(
                 rect, annotation.text,
                 fontsize=annotation.font_size, fontname=annotation.fontname,
-                text_color=COLOR_MAP.get(annotation.color, (0, 0, 0)),
+                text_color=hex_to_fitz_rgb(annotation.color),
                 fill_color=None, border_color=None, border_width=0,
             )
             annot_obj.update()
@@ -103,7 +103,7 @@ def save_as(parent, tab) -> bool:
     """Toon 'Opslaan als', schrijf de annotaties weg. Geeft True bij succes."""
     view = tab.view
     if not view.has_unsaved_changes():
-        QMessageBox.information(parent, "Niets te bewaren", "Er zijn geen annotaties om op te slaan.")
+        QMessageBox.information(parent, "Niets te bewaren", "Er zijn geen wijzigingen om op te slaan.")
         return False
 
     suggested = os.path.splitext(tab.file_path)[0] + "_bewerkt.pdf"
@@ -128,7 +128,7 @@ def save_as(parent, tab) -> bool:
     return True
 
 
-def confirm_discard_unsaved(parent, view, action_description) -> bool:
+def confirm_discard_unsaved(parent, view) -> bool:
     """Vraag bevestiging als er nog niet-opgeslagen wijzigingen zijn.
 
     Geeft True terug als er niets te verliezen is, of als de gebruiker
@@ -140,8 +140,6 @@ def confirm_discard_unsaved(parent, view, action_description) -> bool:
         return True
     reply = QMessageBox.question(
         parent, "Niet-opgeslagen wijzigingen",
-        "Er zijn nog niet-opgeslagen tekst-annotaties, markeringen, paginarotaties, "
-        f"formuliergegevens of handtekeningen op dit tabblad. Deze worden niet meegenomen "
-        f"in {action_description}.\n\nDoorgaan?",
+        "Er zijn nog niet-opgeslagen wijzigingen op dit tabblad.\n\nDoorgaan?",
     )
     return reply == QMessageBox.StandardButton.Yes

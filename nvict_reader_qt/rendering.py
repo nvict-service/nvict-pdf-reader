@@ -17,6 +17,7 @@ RENDER_CACHE_PAGES = 12   # maximaal aantal bitmaps dat we vasthouden
 X_MARGIN = 20
 Y_START = 20
 PAGE_SPACING = 20
+PAGE_GAP = 20  # ruimte tussen de twee pagina's naast elkaar in boek-modus
 
 PageLayoutEntry = namedtuple("PageLayoutEntry", ["page_num", "x", "y", "width", "height"])
 
@@ -25,35 +26,65 @@ WORD_CACHE_PAGES = 20  # aantal pagina's waarvan we de woordenlijst vasthouden
 WordBox = namedtuple("WordBox", ["text", "x0", "y0", "x1", "y1"])
 
 
-def compute_page_layout(pdf_document, zoom_level):
+def compute_page_layout(pdf_document, zoom_level, book_mode=False):
     """Bereken pagina-posities en totale documentgrootte voor doorlopend scrollen.
 
     Geeft (layout, total_width, total_height) terug. `layout` is een lijst
-    van PageLayoutEntry, één per pagina, in documentvolgorde.
+    van PageLayoutEntry, één per pagina, in documentvolgorde. In boek-modus
+    (`book_mode=True`) staan twee pagina's naast elkaar per "rij", zoals
+    NVict_Reader.py's boek-modus (regel 6521-6538).
     """
     layout = []
     y = Y_START
     max_width = 0
+    page_count = len(pdf_document)
 
-    for page_num in range(len(pdf_document)):
-        bound = pdf_document[page_num].bound()
-        w = int(bound.width * zoom_level)
-        h = int(bound.height * zoom_level)
-        layout.append(PageLayoutEntry(page_num, X_MARGIN, y, w, h))
-        max_width = max(max_width, X_MARGIN + w)
-        y += h + PAGE_SPACING
+    if not book_mode:
+        for page_num in range(page_count):
+            bound = pdf_document[page_num].bound()
+            w = int(bound.width * zoom_level)
+            h = int(bound.height * zoom_level)
+            layout.append(PageLayoutEntry(page_num, X_MARGIN, y, w, h))
+            max_width = max(max_width, X_MARGIN + w)
+            y += h + PAGE_SPACING
+    else:
+        page_num = 0
+        while page_num < page_count:
+            bound_a = pdf_document[page_num].bound()
+            w_a = int(bound_a.width * zoom_level)
+            h_a = int(bound_a.height * zoom_level)
+            layout.append(PageLayoutEntry(page_num, X_MARGIN, y, w_a, h_a))
+            row_height = h_a
+            right_edge = X_MARGIN + w_a
+
+            if page_num + 1 < page_count:
+                bound_b = pdf_document[page_num + 1].bound()
+                w_b = int(bound_b.width * zoom_level)
+                h_b = int(bound_b.height * zoom_level)
+                x_b = X_MARGIN + w_a + PAGE_GAP
+                layout.append(PageLayoutEntry(page_num + 1, x_b, y, w_b, h_b))
+                row_height = max(row_height, h_b)
+                right_edge = x_b + w_b
+
+            max_width = max(max_width, right_edge)
+            y += row_height + PAGE_SPACING
+            page_num += 2
 
     total_width = max_width + X_MARGIN
     total_height = y + Y_START
     return layout, total_width, total_height
 
 
-def fit_width_zoom(pdf_document, viewport_width):
-    """Bereken het zoomniveau waarbij pagina 0 net binnen `viewport_width` past."""
+def fit_width_zoom(pdf_document, viewport_width, book_mode=False):
+    """Bereken het zoomniveau waarbij pagina 0 (of, in boek-modus, twee
+    pagina's naast elkaar) net binnen `viewport_width` past."""
     usable_width = max(viewport_width - 2 * X_MARGIN, 100)
     page_width = pdf_document[0].bound().width
     if page_width <= 0:
         return 1.0
+    if book_mode:
+        usable_width = max(usable_width - PAGE_GAP, 100)
+        return (usable_width / 2) / page_width
     return usable_width / page_width
 
 

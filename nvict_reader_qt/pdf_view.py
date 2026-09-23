@@ -24,7 +24,7 @@ from PySide6.QtWidgets import (
 )
 
 from . import form_overlay, rendering, security
-from .annotations import COLOR_MAP, HIGHLIGHT_COLOR, HighlightAnnotation, SignatureAnnotation, TextAnnotation
+from .annotations import HIGHLIGHT_COLOR, HighlightAnnotation, SignatureAnnotation, TextAnnotation
 from .document import get_fitz
 from .signature_dialog import SignatureDialog
 from .text_annotation_dialog import TextAnnotationDialog
@@ -37,13 +37,14 @@ FIELD_HIGHLIGHT_BRUSH = QBrush(QColor(208, 232, 255, 110))
 FIELD_HIGHLIGHT_PEN = QPen(QColor(128, 184, 255))
 FORM_WIDGETS_CACHE_PAGES = 20
 LINKS_CACHE_PAGES = 20
+SEARCH_HIGHLIGHT_PEN = QPen(QColor(255, 140, 0, 255))  # oranje, zoals NVict_Reader.py:2990
+SEARCH_HIGHLIGHT_PEN.setWidth(3)
 
 _FONT_FAMILY_BY_CODE = {"helv": "Arial", "tiro": "Times New Roman", "cour": "Courier New"}
 
 
-def _qcolor_from_pdf(color_key) -> QColor:
-    r, g, b = COLOR_MAP.get(color_key, (0, 0, 0))
-    return QColor(int(r * 255), int(g * 255), int(b * 255))
+def _qcolor_from_pdf(hex_color: str) -> QColor:
+    return QColor(hex_color or "#000000")
 
 
 def _qimage_to_png_bytes(image: QImage) -> bytes:
@@ -89,6 +90,8 @@ class PdfGraphicsView(QGraphicsView):
 
     zoomChanged = Signal(float)
     pageChanged = Signal(int)
+    stateChanged = Signal()      # fase 10: emit bij elke wijziging die has_unsaved_changes() kan beïnvloeden
+    undoAvailable = Signal(bool)  # fase 10: single-step undo
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -107,6 +110,8 @@ class PdfGraphicsView(QGraphicsView):
         self.zoom_level = 1.0
         self.zoom_mode = "fit_width"
         self.current_page = 0
+        self.book_mode = False
+        self.security_info = ""
 
         self.page_layout = []
         self._layout_by_page = {}
@@ -133,6 +138,7 @@ class PdfGraphicsView(QGraphicsView):
 
         # ── Bewerken-menu-state (fase 3) ──
         self.pending_rotations = {}  # page_num -> graden, nog niet naar schijf geschreven
+        self._original_page_rotations = {}  # page_num -> rotatie vóór de eerste wijziging deze sessie
 
         # ── Formuliervelden (fase 4) ──
         self.form_mode = False           # apart van tool_mode: geen klik-plaats-tool, aanhoudende weergave
@@ -151,6 +157,32 @@ class PdfGraphicsView(QGraphicsView):
         self._selection_overlay_items = []  # list[QGraphicsRectItem], blijft staan tot nieuwe sleep/render
         self._links_cache = {}              # page_num -> list[dict], lazy per pagina
         self._hovering_link = False
+
+        # ── Zoeken (fase 10) ──
+        self._search_overlay_items = []  # list[QGraphicsRectItem], oranje omkadering rond treffers
+
+        # ── Undo (fase 10, single-step) ──
+        self._undo_action = None  # (beschrijving, callback) of None
+
+    def set_undo(self, description, callback):
+        """Onthoud de laatst uitgevoerde actie zodat undo() die kan terugdraaien.
+
+        Bewust single-step (gebruikerskeuze fase 10): elke nieuwe actie
+        overschrijft de vorige undo-slot, geen volledige stack.
+        """
+        self._undo_action = (description, callback)
+        self.undoAvailable.emit(True)
+
+    def can_undo(self):
+        return self._undo_action is not None
+
+    def undo(self):
+        if self._undo_action is None:
+            return
+        _description, callback = self._undo_action
+        self._undo_action = None
+        self.undoAvailable.emit(False)
+        callback()
 
     def has_unsaved_changes(self):
         return (
@@ -179,11 +211,17 @@ class PdfGraphicsView(QGraphicsView):
         self.text_annotations = []
         self.highlight_annotations = []
         self.pending_rotations = {}
+        self._original_page_rotations = {}
         self.form_field_values = {}
         self.signature_annotations = []
         self._refresh_field_highlights()
+        # Onduidelijk/verwarrend om iets uit vóór het opslaan terug te draaien
+        # als het al (elders) is vastgelegd - undo-slot dus ook wissen.
+        self._undo_action = None
+        self.undoAvailable.emit(False)
+        self.stateChanged.emit()
 
-    def rotate_pages(self, page_nums, degrees):
+    def rotate_pages(self, page_nums, degrees, _record_undo=True):
         """Roteer de gegeven pagina's direct op het levende document.
 
         Poort van NVict_Reader.py:5402-5404 (page.set_rotation, absolute
@@ -192,11 +230,44 @@ class PdfGraphicsView(QGraphicsView):
         de rotatie kan repliceren (dat heropent het bestand vers vanaf
         schijf, zie save_pdf.py).
         """
+        old_rotations = {page_num: self.pdf_document[page_num].rotation for page_num in page_nums}
         for page_num in page_nums:
+            self._original_page_rotations.setdefault(page_num, old_rotations[page_num])
             self.pdf_document[page_num].set_rotation(degrees)
-            self.pending_rotations[page_num] = degrees
+            self._set_pending_rotation(page_num, degrees)
             self._pixmap_cache.pop(page_num, None)
         self.rebuild_layout(force_render=True)
+        if _record_undo:
+            self.set_undo(
+                "paginarotatie",
+                lambda pages=list(page_nums), old=old_rotations: self._undo_rotate_pages(pages, old),
+            )
+        self.stateChanged.emit()
+
+    def _set_pending_rotation(self, page_num, degrees):
+        """Houd `pending_rotations` bij als afwijking t.o.v. de rotatie waarmee
+        de pagina deze sessie begon - anders zou undo terug naar de
+        oorspronkelijke rotatie de pagina onterecht als "gewijzigd" blijven
+        boekhouden (has_unsaved_changes() bleef dan True na een volledige
+        undo)."""
+        baseline = self._original_page_rotations.get(page_num)
+        if baseline is not None and degrees == baseline:
+            self.pending_rotations.pop(page_num, None)
+        else:
+            self.pending_rotations[page_num] = degrees
+
+    def _undo_rotate_pages(self, page_nums, old_rotations):
+        self._apply_specific_rotations({page_num: old_rotations.get(page_num, 0) for page_num in page_nums})
+
+    def _apply_specific_rotations(self, rotations: dict):
+        """Zet elke pagina naar zijn eigen rotatiewaarde (voor undo, waar
+        verschillende pagina's naar verschillende oude waarden teruggaan)."""
+        for page_num, degrees in rotations.items():
+            self.pdf_document[page_num].set_rotation(degrees)
+            self._set_pending_rotation(page_num, degrees)
+            self._pixmap_cache.pop(page_num, None)
+        self.rebuild_layout(force_render=True)
+        self.stateChanged.emit()
 
     # ── Document lifecycle ────────────────────────────────────────────
 
@@ -212,8 +283,47 @@ class PdfGraphicsView(QGraphicsView):
         self.file_path = file_path
         self.current_page = 0
         self.zoom_mode = "fit_width"
+        self.security_info = self._compute_security_info()
         self._recompute_fit_width_zoom()
         self.rebuild_layout()
+
+    def _detect_signatures(self) -> bool:
+        try:
+            for page_num in range(len(self.pdf_document)):
+                for annot in self.pdf_document[page_num].annots() or []:
+                    if annot and annot.info.get("subtype") == "Sig":
+                        return True
+        except Exception:
+            pass
+        return False
+
+    def _compute_security_info(self) -> str:
+        """Poort van NVict_Reader.py:654-689 (_get_security_info) - toont
+        wachtwoordbeveiliging, permissie-beperkingen (afdrukken/bewerken/
+        kopiëren/annotaties) en digitale ondertekening van het document."""
+        info = []
+        try:
+            if self.pdf_document.is_encrypted:
+                info.append("🔒 Beveiligd (wachtwoord)")
+
+            perms = self.pdf_document.permissions
+            restrictions = []
+            if not (perms & 4):
+                restrictions.append("afdrukken")
+            if not (perms & 8):
+                restrictions.append("bewerken")
+            if not (perms & 16):
+                restrictions.append("kopiëren")
+            if not (perms & 32):
+                restrictions.append("annotaties")
+            if restrictions:
+                info.append(f"🔐 Beperkt ({', '.join(restrictions)})")
+
+            if self._detect_signatures():
+                info.append("🔏 Digitaal ondertekend")
+        except Exception:
+            pass
+        return " | ".join(info)
 
     def close_document(self):
         if self.pdf_document is not None:
@@ -222,6 +332,7 @@ class PdfGraphicsView(QGraphicsView):
             except Exception:
                 pass
         self.pdf_document = None
+        self.security_info = ""
         self.scene().clear()
         self.page_layout = []
         self._layout_by_page = {}
@@ -236,6 +347,7 @@ class PdfGraphicsView(QGraphicsView):
         self._drag_rect_item = None
         self._drag_start_scene = None
         self.pending_rotations = {}
+        self._original_page_rotations = {}
         self.form_mode = False
         self.form_field_values = {}
         self._form_overlay_items = []
@@ -248,6 +360,8 @@ class PdfGraphicsView(QGraphicsView):
         self._selection_overlay_items = []
         self._links_cache = {}
         self._hovering_link = False
+        self._search_overlay_items = []
+        self._undo_action = None
 
     # ── Layout & rendering ───────────────────────────────────────────
 
@@ -271,8 +385,11 @@ class PdfGraphicsView(QGraphicsView):
         # een volledige her-render (zoom/navigatie) wist de tekstselectie.
         self._selected_text = ""
         self._selection_overlay_items = []
+        self._search_overlay_items = []
 
-        layout, total_width, total_height = rendering.compute_page_layout(self.pdf_document, self.zoom_level)
+        layout, total_width, total_height = rendering.compute_page_layout(
+            self.pdf_document, self.zoom_level, self.book_mode
+        )
         self.page_layout = layout
         self._layout_by_page = {entry.page_num: entry for entry in layout}
         self.scene().setSceneRect(0, 0, total_width, total_height)
@@ -378,14 +495,38 @@ class PdfGraphicsView(QGraphicsView):
         viewport_width = self.viewport().width()
         if viewport_width <= 1:
             viewport_width = 800
-        self.zoom_level = rendering.fit_width_zoom(self.pdf_document, viewport_width)
+        self.zoom_level = rendering.fit_width_zoom(self.pdf_document, viewport_width, self.book_mode)
+
+    def _rebuild_layout_keep_page(self):
+        """rebuild_layout() herbouwt de scene op scherm-pixelcoördinaten die
+        bij een andere zoom/boek-modus totaal anders liggen - zonder dit
+        bleef de schuifbalk op zijn oude pixelwaarde staan, wat na het
+        zoomen of wisselen van boek-modus naar een compleet andere pagina
+        sprong (bv. van pagina 30 naar 24 na zoom in). Renderen we dus met
+        force_render=False en scrollen we expliciet terug naar de pagina
+        waar de gebruiker was."""
+        current = self.current_page
+        self.rebuild_layout(force_render=False)
+        self.go_to_page(current)
 
     def set_zoom_mode_fit_width(self):
         if not self.pdf_document:
             return
         self.zoom_mode = "fit_width"
         self._recompute_fit_width_zoom()
-        self.rebuild_layout()
+        self._rebuild_layout_keep_page()
+        self.zoomChanged.emit(self.zoom_level)
+
+    def toggle_book_mode(self):
+        """Wissel boek-modus (twee pagina's naast elkaar) aan/uit.
+
+        Poort van NVict_Reader.py:6521-6538 (toggle_book_mode)."""
+        if not self.pdf_document:
+            return
+        self.book_mode = not self.book_mode
+        if self.zoom_mode == "fit_width":
+            self._recompute_fit_width_zoom()
+        self._rebuild_layout_keep_page()
         self.zoomChanged.emit(self.zoom_level)
 
     def zoom_in(self):
@@ -399,7 +540,7 @@ class PdfGraphicsView(QGraphicsView):
             return
         self.zoom_mode = "manual"
         self.zoom_level = max(0.1, min(new_zoom, 8.0))
-        self.rebuild_layout()
+        self._rebuild_layout_keep_page()
         self.zoomChanged.emit(self.zoom_level)
 
     def current_page_number(self):
@@ -418,9 +559,16 @@ class PdfGraphicsView(QGraphicsView):
         page_num = max(0, min(page_num, len(self.page_layout) - 1))
         entry = self._layout_by_page[page_num]
         self.centerOn(entry.x + entry.width / 2, entry.y + self.viewport().height() / 3)
-        self.current_page = page_num
-        self.pageChanged.emit(page_num)
+        # render_visible_pages() herberekent zelf ook current_page via de
+        # "bovenste zichtbare pagina"-heuristiek (current_page_number) -
+        # bij een korte pagina die nog net met een randje in beeld blijft
+        # na het scrollen kan dat de net aangevraagde pagina overschrijven
+        # met de vorige. Daarom hier NA het renderen alsnog forceren naar
+        # de daadwerkelijk aangevraagde pagina.
         self.render_visible_pages(force=True)
+        if self.current_page != page_num:
+            self.current_page = page_num
+            self.pageChanged.emit(page_num)
 
     def next_page(self):
         self.go_to_page(self.current_page + 1)
@@ -434,6 +582,52 @@ class PdfGraphicsView(QGraphicsView):
     def last_page(self):
         if self.page_layout:
             self.go_to_page(len(self.page_layout) - 1)
+
+    # ── Zoeken (fase 10) ─────────────────────────────────────────────
+
+    def _clear_search_overlay(self):
+        for item in self._search_overlay_items:
+            self.scene().removeItem(item)
+        self._search_overlay_items = []
+
+    def search(self, term) -> bool:
+        """Zoek `term` cyclisch vanaf de huidige pagina; geeft True bij een
+        treffer. Poort van NVict_Reader.py:2948-3023 (search_in_pdf) - stopt
+        bij de eerste pagina met een treffer en markeert daar alle
+        treffers met een oranje omkadering."""
+        self._clear_search_overlay()
+        if not self.pdf_document or not term:
+            return False
+
+        page_count = len(self.pdf_document)
+        for offset in range(page_count):
+            page_num = (self.current_page + offset) % page_count
+            instances = self.pdf_document[page_num].search_for(term)
+            if not instances:
+                continue
+
+            if page_num != self.current_page:
+                self.go_to_page(page_num)
+            else:
+                self.render_visible_pages(force=True)
+
+            entry = self._layout_by_page.get(page_num)
+            if entry is not None:
+                for rect in instances:
+                    x0 = entry.x + rect.x0 * self.zoom_level
+                    y0 = entry.y + rect.y0 * self.zoom_level
+                    x1 = entry.x + rect.x1 * self.zoom_level
+                    y1 = entry.y + rect.y1 * self.zoom_level
+                    item = QGraphicsRectItem(0, 0, x1 - x0, y1 - y0)
+                    item.setPos(x0, y0)
+                    item.setPen(SEARCH_HIGHLIGHT_PEN)
+                    item.setBrush(QBrush(Qt.BrushStyle.NoBrush))
+                    item.setZValue(3)
+                    self.scene().addItem(item)
+                    self._search_overlay_items.append(item)
+            return True
+
+        return False
 
     # ── Annotaties: tekst & markeren (fase 2) ──────────────────────────
 
@@ -493,6 +687,36 @@ class PdfGraphicsView(QGraphicsView):
                 return annotation, item
         return None
 
+    def _remove_text_annotation_overlay(self, annotation):
+        for pair in list(self._text_overlay_items):
+            if pair[0] is annotation:
+                self._text_overlay_items.remove(pair)
+                self.scene().removeItem(pair[1])
+                return
+
+    def _undo_add_text_annotation(self, annotation):
+        """Undo van 'tekst toevoegen': verwijder de net toegevoegde annotatie."""
+        self._remove_text_annotation_overlay(annotation)
+        if annotation in self.text_annotations:
+            self.text_annotations.remove(annotation)
+        self.stateChanged.emit()
+
+    def _undo_remove_text_annotation(self, annotation):
+        """Undo van 'tekst verwijderen': voeg de annotatie terug toe."""
+        self.text_annotations.append(annotation)
+        self._add_text_annotation_overlay(annotation)
+        self.stateChanged.emit()
+
+    def _undo_edit_text_annotation(self, annotation, old_values):
+        """Undo van 'tekst bewerken': herstel de vorige waarden."""
+        self._remove_text_annotation_overlay(annotation)
+        annotation.text = old_values["text"]
+        annotation.font_size = old_values["font_size"]
+        annotation.color = old_values["color"]
+        annotation.fontname = old_values["fontname"]
+        self._add_text_annotation_overlay(annotation)
+        self.stateChanged.emit()
+
     def _handle_text_annotate_click(self, scene_pos):
         hit = self._text_annotation_at(scene_pos)
         if hit is not None:
@@ -507,9 +731,12 @@ class PdfGraphicsView(QGraphicsView):
                     self.text_annotations.remove(annotation)
                     self._text_overlay_items.remove((annotation, item))
                     self.scene().removeItem(item)
+                    self.set_undo("tekst verwijderen", lambda ann=annotation: self._undo_remove_text_annotation(ann))
+                    self.stateChanged.emit()
                 else:
                     result = dialog.get_result()
                     if result["text"]:
+                        old_values = dict(existing)
                         annotation.text = result["text"]
                         annotation.font_size = result["font_size"]
                         annotation.color = result["color"]
@@ -517,6 +744,11 @@ class PdfGraphicsView(QGraphicsView):
                         self._text_overlay_items.remove((annotation, item))
                         self.scene().removeItem(item)
                         self._add_text_annotation_overlay(annotation)
+                        self.set_undo(
+                            "tekst bewerken",
+                            lambda ann=annotation, old=old_values: self._undo_edit_text_annotation(ann, old),
+                        )
+                        self.stateChanged.emit()
             return
 
         entry = self._page_at_scene_pos(scene_pos)
@@ -538,6 +770,8 @@ class PdfGraphicsView(QGraphicsView):
                 )
                 self.text_annotations.append(annotation)
                 self._add_text_annotation_overlay(annotation)
+                self.set_undo("tekst toevoegen", lambda ann=annotation: self._undo_add_text_annotation(ann))
+                self.stateChanged.emit()
 
     # ── Markeren (highlight) ──
 
@@ -590,14 +824,32 @@ class PdfGraphicsView(QGraphicsView):
             if quads:
                 self._apply_highlight(entry.page_num, quads)
 
-    def _apply_highlight(self, page_num, quads):
+    def _invalidate_page_render(self, page_num):
+        """Gooi de cache weg én het al getekende item (als dat er is).
+
+        render_visible_pages slaat een pagina die al in _pixmap_items staat
+        over ("continue"), ook als de onderliggende cache-pixmap net
+        ongeldig is gemaakt - zonder deze stap bleef een highlight/rotatie
+        pas zichtbaar na een volledige her-render (bv. door te zoomen).
+        """
+        self._pixmap_cache.pop(page_num, None)
+        item = self._pixmap_items.pop(page_num, None)
+        if item is not None:
+            self.scene().removeItem(item)
+            self._restore_placeholder(page_num)
+
+    def _apply_highlight(self, page_num, quads, record_undo=True):
         page = self.pdf_document[page_num]
         annot = page.add_highlight_annot(quads)
         annot.set_colors(stroke=HIGHLIGHT_COLOR)
         annot.update()
-        self.highlight_annotations.append(HighlightAnnotation(page_num=page_num, quads=quads, xref=annot.xref))
-        self._pixmap_cache.pop(page_num, None)
+        highlight = HighlightAnnotation(page_num=page_num, quads=quads, xref=annot.xref)
+        self.highlight_annotations.append(highlight)
+        self._invalidate_page_render(page_num)
         self.render_visible_pages(force=True)
+        if record_undo:
+            self.set_undo("markering toevoegen", lambda h=highlight: self._remove_highlight(h, record_undo=False))
+        self.stateChanged.emit()
 
     def _highlight_at(self, entry, scene_pos):
         pdf_x = (scene_pos.x() - entry.x) / self.zoom_level
@@ -611,7 +863,7 @@ class PdfGraphicsView(QGraphicsView):
                     return highlight
         return None
 
-    def _remove_highlight(self, highlight):
+    def _remove_highlight(self, highlight, record_undo=True):
         page = self.pdf_document[highlight.page_num]
         try:
             annot = page.load_annot(highlight.xref)
@@ -620,8 +872,14 @@ class PdfGraphicsView(QGraphicsView):
             pass
         if highlight in self.highlight_annotations:
             self.highlight_annotations.remove(highlight)
-        self._pixmap_cache.pop(highlight.page_num, None)
+        self._invalidate_page_render(highlight.page_num)
         self.render_visible_pages(force=True)
+        if record_undo:
+            self.set_undo(
+                "markering verwijderen",
+                lambda pn=highlight.page_num, q=highlight.quads: self._apply_highlight(pn, q, record_undo=False),
+            )
+        self.stateChanged.emit()
 
     def _handle_right_click(self, scene_pos):
         entry = self._page_at_scene_pos(scene_pos)
@@ -824,6 +1082,10 @@ class PdfGraphicsView(QGraphicsView):
 
     def _on_form_value_changed(self, xref, value):
         self.form_field_values[xref] = value
+        # Geen undo hiervoor (fase-10-scope): dit vuurt per toets/toggle, dus
+        # "laatste actie ongedaan maken" zou alleen het laatste tekentje
+        # terugdraaien - niet nuttig bij single-step undo.
+        self.stateChanged.emit()
 
     def _add_field_highlights(self, page_num):
         entry = self._layout_by_page.get(page_num)
@@ -899,12 +1161,29 @@ class PdfGraphicsView(QGraphicsView):
                 return item.annotation, item
         return None
 
-    def _remove_signature(self, annotation, item):
+    def _remove_signature(self, annotation, item, record_undo=True):
         if annotation in self.signature_annotations:
             self.signature_annotations.remove(annotation)
         if item in self._signature_overlay_items:
             self._signature_overlay_items.remove(item)
         self.scene().removeItem(item)
+        if record_undo:
+            self.set_undo("handtekening verwijderen", lambda ann=annotation: self._undo_remove_signature(ann))
+        self.stateChanged.emit()
+
+    def _undo_remove_signature(self, annotation):
+        self.signature_annotations.append(annotation)
+        self._add_signature_overlay(annotation)
+        self.stateChanged.emit()
+
+    def _undo_place_signature(self, annotation):
+        item = None
+        for it in self._signature_overlay_items:
+            if it.annotation is annotation:
+                item = it
+                break
+        if item is not None:
+            self._remove_signature(annotation, item, record_undo=False)
 
     def _handle_signature_click(self, scene_pos):
         entry = self._page_at_scene_pos(scene_pos)
@@ -932,6 +1211,8 @@ class PdfGraphicsView(QGraphicsView):
         )
         self.signature_annotations.append(annotation)
         self._add_signature_overlay(annotation)
+        self.set_undo("handtekening plaatsen", lambda ann=annotation: self._undo_place_signature(ann))
+        self.stateChanged.emit()
 
     # ── Qt events ────────────────────────────────────────────────────
 
@@ -1009,4 +1290,4 @@ class PdfGraphicsView(QGraphicsView):
         super().resizeEvent(event)
         if self.pdf_document and self.zoom_mode == "fit_width":
             self._recompute_fit_width_zoom()
-            self.rebuild_layout()
+            self._rebuild_layout_keep_page()

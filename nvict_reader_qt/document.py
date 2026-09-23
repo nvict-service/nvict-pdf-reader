@@ -10,9 +10,15 @@ _fitz = None
 
 
 def get_fitz():
-    """Lazy import van PyMuPDF (fitz) - alleen laden wanneer een PDF wordt geopend."""
+    """Lazy import van PyMuPDF - alleen laden wanneer een PDF wordt geopend.
+
+    Importeert als `pymupdf` (niet de oude `fitz`-naam): functioneel
+    identiek, maar `import fitz` drukt bij elke start een deprecation-
+    warning af ("gebruik pymupdf i.p.v. fitz") die de gebruiker bij het
+    handmatig starten van het programma te zien kreeg.
+    """
     global _fitz
     if _fitz is None:
-        import fitz
-        _fitz = fitz
+        import pymupdf
+        _fitz = pymupdf
     return _fitz

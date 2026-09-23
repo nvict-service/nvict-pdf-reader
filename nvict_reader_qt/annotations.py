@@ -1,10 +1,9 @@
 # -*- coding: utf-8 -*-
 """Datamodellen voor tekst-annotaties en highlights.
 
-Kleuren/lettertypes exact overgenomen uit NVict_Reader.py (color_map regel
-3987-3991, font_map regel 4665-4669, kleurknoppen regel 4694-4699) zodat een
-PDF die met de tkinter-app is bewerkt en met deze Qt-app wordt geopend (of
-omgekeerd) dezelfde kleurwaarden gebruikt.
+Lettertypes overgenomen uit NVict_Reader.py (font_map regel 4665-4669).
+Kleur is een vrij te kiezen hex-string (via QColorDialog, testfeedback
+fase 9) i.p.v. tkinter's 4 vaste voorkeurskleuren.
 """
 
 from dataclasses import dataclass, field
@@ -15,30 +14,20 @@ FONT_MAP = {
     "Courier": "cour",
 }
 
-# De "blue": (0, 0, 1)-sleutel uit de tkinter color_map is dood - de UI zette
-# color_var nooit op "blue", alleen op "#0066CC" (knoplabel "Blauw"). Hier
-# dus niet overgenomen.
-COLOR_MAP = {
-    "black": (0, 0, 0),
-    "red": (1, 0, 0),
-    "#0066CC": (0, 0.4, 0.8),
-    "darkgreen": (0, 0.4, 0),
-}
-
-# (label, kleur-key, knop-achtergrondkleur, knop-tekstkleur) - zelfde 4 opties
-# en volgorde als de tkinter-inline-editor (regel 4694-4699).
-COLOR_CHOICES = [
-    ("Zwart", "black", "#222222", "white"),
-    ("Rood", "red", "#cc3333", "white"),
-    ("Blauw", "#0066CC", "#2266bb", "white"),
-    ("Groen", "darkgreen", "#228833", "white"),
-]
-
 DEFAULT_FONT_SIZE = 11
 MIN_FONT_SIZE = 6
 MAX_FONT_SIZE = 36
+DEFAULT_TEXT_COLOR = "#000000"
 
 HIGHLIGHT_COLOR = (1.0, 0.85, 0.0)  # geel, zelfde als NVict_Reader.py:6498
+
+
+def hex_to_fitz_rgb(hex_color: str):
+    """Zet '#RRGGBB' om naar een (r, g, b)-tuple van floats 0-1 voor fitz."""
+    hex_color = (hex_color or DEFAULT_TEXT_COLOR).lstrip("#")
+    if len(hex_color) != 6:
+        hex_color = DEFAULT_TEXT_COLOR.lstrip("#")
+    return tuple(int(hex_color[i:i + 2], 16) / 255 for i in (0, 2, 4))
 
 
 @dataclass
@@ -48,7 +37,7 @@ class TextAnnotation:
     pdf_y: float
     text: str
     font_size: int = DEFAULT_FONT_SIZE
-    color: str = "black"
+    color: str = DEFAULT_TEXT_COLOR
     fontname: str = "helv"
 
 
