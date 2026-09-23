@@ -13,6 +13,7 @@ from PySide6.QtCore import Qt
 from PySide6.QtGui import QAction, QIcon, QKeySequence, QPageLayout
 from PySide6.QtPrintSupport import QPrinter
 from PySide6.QtWidgets import (
+    QApplication,
     QFileDialog,
     QMainWindow,
     QMessageBox,
@@ -21,10 +22,11 @@ from PySide6.QtWidgets import (
     QToolButton,
 )
 
-from . import document_tools, print_backend, save_pdf, settings
+from . import document_tools, print_backend, save_pdf, settings, theme
 from .document_tools_dialogs import ExportPagesDialog, MergePdfsDialog, RotatePagesDialog
 from .pdf_tab import PdfTabWidget
 from .print_dialog import PrintDialog
+from .settings_dialog import SettingsDialog
 
 ICONS_DIR = Path(__file__).resolve().parent.parent / "icons"
 
@@ -135,6 +137,9 @@ class MainWindow(QMainWindow):
         self.action_copy_text.setShortcut(QKeySequence.StandardKey.Copy)
         self.action_copy_text.triggered.connect(lambda: self._on_active(lambda v: v.copy_selected_text()))
 
+        self.action_settings = QAction("&Instellingen...", self)
+        self.action_settings.triggered.connect(self._open_settings)
+
     def _build_menu(self):
         file_menu = self.menuBar().addMenu("&Bestand")
         file_menu.addAction(self.action_open)
@@ -168,6 +173,9 @@ class MainWindow(QMainWindow):
         edit_menu.addAction(self.action_merge_pdfs)
         edit_menu.addAction(self.action_rotate_pages)
         self.edit_menu = edit_menu
+
+        settings_menu = self.menuBar().addMenu("&Instellingen")
+        settings_menu.addAction(self.action_settings)
 
     def _build_toolbar(self):
         toolbar = self.addToolBar("Hoofdwerkbalk")
@@ -358,6 +366,16 @@ class MainWindow(QMainWindow):
         tab = self.tabs.currentWidget()
         if tab is not None:
             save_pdf.save_as(self, tab)
+
+    # ── Instellingen ──────────────────────────────────────────────────
+
+    def _open_settings(self):
+        dialog = SettingsDialog(self)
+        if not dialog.exec():
+            return
+        mode = dialog.get_theme_mode()
+        settings.save_theme_mode(mode)
+        theme.apply_theme(QApplication.instance(), mode)
 
     # ── Bewerken-menu: exporteren, samenvoegen, roteren ──────────────
 

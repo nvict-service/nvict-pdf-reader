@@ -5,7 +5,7 @@ import sys
 
 from PySide6.QtWidgets import QApplication
 
-from . import theme
+from . import settings, theme
 from .main_window import MainWindow
 
 
@@ -14,7 +14,7 @@ def main(argv=None):
     app.setApplicationName("NVict Reader")
     app.setOrganizationName("NVict Service")
 
-    theme.apply_theme(app, "Systeemstandaard")
+    theme.apply_theme(app, settings.get_theme_mode())
 
     window = MainWindow()
 

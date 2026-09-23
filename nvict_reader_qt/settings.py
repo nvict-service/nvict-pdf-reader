@@ -26,3 +26,11 @@ def restore_window_state(window):
         window.restoreGeometry(geometry)
     if settings.value("maximized", False, type=bool):
         window.showMaximized()
+
+
+def get_theme_mode() -> str:
+    return get_settings().value("theme", "Systeemstandaard", type=str)
+
+
+def save_theme_mode(mode: str):
+    get_settings().setValue("theme", mode)
