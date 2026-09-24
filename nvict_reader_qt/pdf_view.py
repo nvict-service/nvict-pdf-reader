@@ -86,6 +86,31 @@ class _SignatureItem(QGraphicsPixmapItem):
         return super().itemChange(change, value)
 
 
+class _TextItem(QGraphicsSimpleTextItem):
+    """Versleepbare, zelf toegevoegde tekst - zelfde aanpak als _SignatureItem:
+    Qt doet het slepen, itemChange houdt annotation.pdf_x/pdf_y bij."""
+
+    def __init__(self, text, annotation, view):
+        super().__init__(text)
+        self.annotation = annotation
+        self._view = view
+        self.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsMovable, True)
+        self.setFlag(QGraphicsItem.GraphicsItemFlag.ItemSendsGeometryChanges, True)
+        self.setCursor(Qt.CursorShape.SizeAllCursor)
+
+    def itemChange(self, change, value):
+        if change == QGraphicsItem.GraphicsItemChange.ItemPositionHasChanged:
+            entry = self._view._layout_by_page.get(self.annotation.page_num)
+            if entry is not None and self._view.zoom_level:
+                self.annotation.pdf_x = (value.x() - entry.x) / self._view.zoom_level
+                self.annotation.pdf_y = (value.y() - entry.y) / self._view.zoom_level
+        return super().itemChange(change, value)
+
+
+# Minder dan dit aantal pixels bewogen = een klik (bewerken), geen verslepen.
+_TEXT_DRAG_THRESHOLD_PX = 3
+
+
 class PdfGraphicsView(QGraphicsView):
     """Toont één PDF-document met doorlopend scrollen en lazy rendering."""
 
@@ -135,6 +160,7 @@ class PdfGraphicsView(QGraphicsView):
         self._text_overlay_items = []    # list[(TextAnnotation, QGraphicsSimpleTextItem)]
         self._word_cache = {}            # page_num -> list[WordBox], lazy per gebruik
         self._drag_rect_item = None
+        self._text_press = None  # (annotatie, item, scene-pos, oude pdf-positie) tijdens indrukken op eigen tekst
         self._drag_start_scene = None
 
         # ── Bewerken-menu-state (fase 3) ──
@@ -672,7 +698,7 @@ class PdfGraphicsView(QGraphicsView):
         entry = self._layout_by_page.get(annotation.page_num)
         if entry is None:
             return
-        item = QGraphicsSimpleTextItem(annotation.text)
+        item = _TextItem(annotation.text, annotation, self)
         font = QFont(_FONT_FAMILY_BY_CODE.get(annotation.fontname, "Arial"))
         font.setPixelSize(max(1, round(annotation.font_size * self.zoom_level)))
         item.setFont(font)
@@ -718,40 +744,62 @@ class PdfGraphicsView(QGraphicsView):
         self._add_text_annotation_overlay(annotation)
         self.stateChanged.emit()
 
-    def _handle_text_annotate_click(self, scene_pos):
-        hit = self._text_annotation_at(scene_pos)
-        if hit is not None:
-            annotation, item = hit
-            existing = {
-                "text": annotation.text, "font_size": annotation.font_size,
-                "color": annotation.color, "fontname": annotation.fontname,
-            }
-            dialog = TextAnnotationDialog(self, existing=existing)
-            if dialog.exec():
-                if dialog.delete_requested():
-                    self.text_annotations.remove(annotation)
-                    self._text_overlay_items.remove((annotation, item))
-                    self.scene().removeItem(item)
-                    self.set_undo("tekst verwijderen", lambda ann=annotation: self._undo_remove_text_annotation(ann))
-                    self.stateChanged.emit()
-                else:
-                    result = dialog.get_result()
-                    if result["text"]:
-                        old_values = dict(existing)
-                        annotation.text = result["text"]
-                        annotation.font_size = result["font_size"]
-                        annotation.color = result["color"]
-                        annotation.fontname = result["fontname"]
-                        self._text_overlay_items.remove((annotation, item))
-                        self.scene().removeItem(item)
-                        self._add_text_annotation_overlay(annotation)
-                        self.set_undo(
-                            "tekst bewerken",
-                            lambda ann=annotation, old=old_values: self._undo_edit_text_annotation(ann, old),
-                        )
-                        self.stateChanged.emit()
-            return
+    def _remove_text_annotation(self, annotation, item):
+        if annotation in self.text_annotations:
+            self.text_annotations.remove(annotation)
+        if (annotation, item) in self._text_overlay_items:
+            self._text_overlay_items.remove((annotation, item))
+        self.scene().removeItem(item)
+        self.set_undo("tekst verwijderen", lambda ann=annotation: self._undo_remove_text_annotation(ann))
+        self.stateChanged.emit()
 
+    def _edit_text_annotation(self, annotation, item):
+        existing = {
+            "text": annotation.text, "font_size": annotation.font_size,
+            "color": annotation.color, "fontname": annotation.fontname,
+        }
+        dialog = TextAnnotationDialog(self, existing=existing)
+        if not dialog.exec():
+            return
+        if dialog.delete_requested():
+            self._remove_text_annotation(annotation, item)
+            return
+        result = dialog.get_result()
+        if result["text"]:
+            old_values = dict(existing)
+            annotation.text = result["text"]
+            annotation.font_size = result["font_size"]
+            annotation.color = result["color"]
+            annotation.fontname = result["fontname"]
+            self._text_overlay_items.remove((annotation, item))
+            self.scene().removeItem(item)
+            self._add_text_annotation_overlay(annotation)
+            self.set_undo(
+                "tekst bewerken",
+                lambda ann=annotation, old=old_values: self._undo_edit_text_annotation(ann, old),
+            )
+            self.stateChanged.emit()
+
+    def _undo_move_text_annotation(self, annotation, old_pos):
+        annotation.pdf_x, annotation.pdf_y = old_pos
+        self._remove_text_annotation_overlay(annotation)
+        self._add_text_annotation_overlay(annotation)
+        self.stateChanged.emit()
+
+    def _finish_text_press(self, release_scene_pos):
+        """Loslaten na indrukken op eigen tekst: bewogen = verplaatst
+        (ongedaan te maken), niet bewogen = klik = bewerken/verwijderen."""
+        annotation, item, press_scene_pos, old_pos = self._text_press
+        self._text_press = None
+        moved = (release_scene_pos - press_scene_pos).manhattanLength() * self.transform().m11()
+        if moved >= _TEXT_DRAG_THRESHOLD_PX:
+            self.set_undo("tekst verplaatsen", lambda ann=annotation, pos=old_pos: self._undo_move_text_annotation(ann, pos))
+            self.stateChanged.emit()
+        else:
+            annotation.pdf_x, annotation.pdf_y = old_pos
+            self._edit_text_annotation(annotation, item)
+
+    def _handle_text_annotate_click(self, scene_pos):
         entry = self._page_at_scene_pos(scene_pos)
         if entry is None:
             return
@@ -885,6 +933,19 @@ class PdfGraphicsView(QGraphicsView):
     def _handle_right_click(self, scene_pos):
         entry = self._page_at_scene_pos(scene_pos)
         if entry is None:
+            return
+
+        text_hit = self._text_annotation_at(scene_pos)
+        if text_hit is not None:
+            annotation, item = text_hit
+            menu = QMenu(self)
+            edit_action = menu.addAction(tr("Tekst bewerken..."))
+            remove_action = menu.addAction(tr("Tekst verwijderen"))
+            chosen = menu.exec(self.viewport().mapToGlobal(self.mapFromScene(scene_pos)))
+            if chosen == edit_action:
+                self._edit_text_annotation(annotation, item)
+            elif chosen == remove_action:
+                self._remove_text_annotation(annotation, item)
             return
 
         highlight = self._highlight_at(entry, scene_pos)
@@ -1229,6 +1290,15 @@ class PdfGraphicsView(QGraphicsView):
             return
 
         if event.button() == Qt.MouseButton.LeftButton:
+            # Eigen toegevoegde tekst: versleepbaar (en klikbaar om te
+            # bewerken) in de normale modus en met het tekst-hulpmiddel.
+            if self.tool_mode in (None, "text_annotate"):
+                text_hit = self._text_annotation_at(scene_pos)
+                if text_hit is not None:
+                    annotation, item = text_hit
+                    self._text_press = (annotation, item, scene_pos, (annotation.pdf_x, annotation.pdf_y))
+                    super().mousePressEvent(event)  # Qt's item-drag
+                    return
             if self.tool_mode == "text_annotate":
                 self._handle_text_annotate_click(scene_pos)
                 return
@@ -1278,6 +1348,10 @@ class PdfGraphicsView(QGraphicsView):
         super().mouseMoveEvent(event)
 
     def mouseReleaseEvent(self, event):
+        if self._text_press is not None:
+            super().mouseReleaseEvent(event)
+            self._finish_text_press(self.mapToScene(event.position().toPoint()))
+            return
         if self._drag_rect_item is not None:
             scene_pos = self.mapToScene(event.position().toPoint())
             if self.tool_mode == "highlight":

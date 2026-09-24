@@ -263,6 +263,8 @@ EN = {
     "Digitaal ondertekend": "Digitally signed",
     "Markering verwijderen": "Remove highlight",
     "Handtekening verwijderen": "Remove signature",
+    "Tekst bewerken...": "Edit text...",
+    "Tekst verwijderen": "Remove text",
     "Link geblokkeerd": "Link blocked",
     "Deze link is niet geopend omdat het geen gewone web- of e-mailkoppeling is.\n\n"
     "Alleen http, https en mailto worden toegestaan.":
