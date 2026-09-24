@@ -33,6 +33,7 @@ from PySide6.QtWidgets import (
 )
 
 from . import security
+from .platform_win import is_packaged
 
 APP_VERSION = "3.0"
 UPDATE_CHECK_URL = "https://www.nvict.nl/software/updates/nvict_reader_version.json"
@@ -149,7 +150,19 @@ class _UpdateAvailableDialog(QDialog):
 def check_for_updates(parent, silent=False):
     """Controleer op een nieuwere versie. `silent=True`: geen melding als
     het al de nieuwste versie is of de server niet bereikbaar is (voor de
-    stille controle bij het opstarten) - alleen tonen als er echt iets is."""
+    stille controle bij het opstarten) - alleen tonen als er echt iets is.
+
+    In de Microsoft Store-versie doet de Store de updates (en staat de
+    Store-richtlijn een eigen updater niet toe), dus dan wordt er niets
+    gecontroleerd of gedownload."""
+    if is_packaged():
+        if not silent:
+            QMessageBox.information(
+                parent, "Updates",
+                "Deze versie van NVict Reader wordt automatisch bijgewerkt "
+                "via de Microsoft Store.",
+            )
+        return
     thread = _CheckThread(parent)
 
     def on_ok(data):

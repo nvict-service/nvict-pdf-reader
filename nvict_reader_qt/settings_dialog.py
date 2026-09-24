@@ -21,7 +21,7 @@ from PySide6.QtWidgets import (
 )
 
 from . import settings
-from .platform_win import DefaultPDFHandler
+from .platform_win import DefaultPDFHandler, is_packaged
 
 THEME_LABELS = ["Licht", "Donker", "Systeemstandaard"]
 
@@ -74,7 +74,10 @@ class SettingsDialog(QDialog):
         layout.addWidget(buttons)
 
     def _set_as_default(self):
-        DefaultPDFHandler.register_open_with()
+        # De Store-versie krijgt de .pdf-koppeling uit het package-manifest;
+        # registerschrijfacties worden daar gevirtualiseerd en hebben geen effect.
+        if not is_packaged():
+            DefaultPDFHandler.register_open_with()
         reply = QMessageBox.question(
             self, "Standaard app instellen",
             "Om NVict Reader als standaard in te stellen, opent Windows nu het instellingenmenu.\n\n"

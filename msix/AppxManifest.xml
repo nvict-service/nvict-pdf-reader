@@ -1,0 +1,68 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  MSIX-manifest (sjabloon) voor de Microsoft Store-versie van NVict Reader.
+
+  De $$-velden (bv. $${VERSION}) vult _nvict_build/nvict_build/msix.py bij het bouwen in,
+  uit app_meta.yaml (msix_*-velden) en version.py. Identity Name en
+  Publisher MOETEN exact overeenkomen met "Productidentiteit" in Partner
+  Center, anders weigert de Store het pakket.
+-->
+<Package
+  xmlns="http://schemas.microsoft.com/appx/manifest/foundation/windows10"
+  xmlns:uap="http://schemas.microsoft.com/appx/manifest/uap/windows10"
+  xmlns:rescap="http://schemas.microsoft.com/appx/manifest/foundation/windows10/restrictedcapabilities"
+  IgnorableNamespaces="uap rescap">
+
+  <Identity
+    Name="${IDENTITY_NAME}"
+    Publisher="${PUBLISHER}"
+    Version="${VERSION}"
+    ProcessorArchitecture="x64" />
+
+  <Properties>
+    <DisplayName>${DISPLAY_NAME}</DisplayName>
+    <PublisherDisplayName>${PUBLISHER_DISPLAY_NAME}</PublisherDisplayName>
+    <Logo>Assets\StoreLogo.png</Logo>
+    <Description>Gratis PDF-viewer: lezen, formulieren invullen, ondertekenen, markeren, samenvoegen en afdrukken.</Description>
+  </Properties>
+
+  <Dependencies>
+    <TargetDeviceFamily Name="Windows.Desktop" MinVersion="10.0.17763.0" MaxVersionTested="10.0.26100.0" />
+  </Dependencies>
+
+  <Resources>
+    <Resource Language="nl-NL" />
+  </Resources>
+
+  <Applications>
+    <Application Id="NVictReader" Executable="${EXECUTABLE}" EntryPoint="Windows.FullTrustApplication">
+      <uap:VisualElements
+        DisplayName="${DISPLAY_NAME}"
+        Description="Gratis PDF-viewer van NVict Service"
+        BackgroundColor="transparent"
+        Square150x150Logo="Assets\Square150x150Logo.png"
+        Square44x44Logo="Assets\Square44x44Logo.png">
+        <uap:DefaultTile Wide310x150Logo="Assets\Wide310x150Logo.png" />
+      </uap:VisualElements>
+
+      <Extensions>
+        <!-- .pdf-koppeling: Windows geeft het pad als argument mee aan de exe,
+             net als bij de Inno Setup-versie ("%1"). -->
+        <uap:Extension Category="windows.fileTypeAssociation">
+          <uap:FileTypeAssociation Name="pdf">
+            <uap:DisplayName>PDF-document</uap:DisplayName>
+            <uap:Logo>Assets\PdfFile.png</uap:Logo>
+            <uap:SupportedFileTypes>
+              <uap:FileType ContentType="application/pdf">.pdf</uap:FileType>
+            </uap:SupportedFileTypes>
+          </uap:FileTypeAssociation>
+        </uap:Extension>
+      </Extensions>
+    </Application>
+  </Applications>
+
+  <Capabilities>
+    <Capability Name="internetClient" />
+    <rescap:Capability Name="runFullTrust" />
+  </Capabilities>
+</Package>

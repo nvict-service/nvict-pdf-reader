@@ -10,6 +10,7 @@ aangeroepen (geen first-run-dialoog), maar staat al klaar zodat een latere
 fase zonder refactor kan aanhaken.
 """
 
+import ctypes
 import os
 import subprocess
 import sys
@@ -18,6 +19,37 @@ try:
     import winreg
 except ImportError:
     winreg = None
+
+
+_APPMODEL_ERROR_NO_PACKAGE = 15700
+_ERROR_INSUFFICIENT_BUFFER = 122
+
+
+def get_package_family_name():
+    """Package Family Name als de app als MSIX (Microsoft Store) draait,
+    anders None. Werkt via kernel32.GetCurrentPackageFamilyName, dat bij een
+    gewone (Inno Setup-)installatie APPMODEL_ERROR_NO_PACKAGE teruggeeft."""
+    if sys.platform != "win32":
+        return None
+    try:
+        func = ctypes.windll.kernel32.GetCurrentPackageFamilyName
+    except (AttributeError, OSError):
+        return None  # Windows ouder dan 8
+    length = ctypes.c_uint32(0)
+    rc = func(ctypes.byref(length), None)
+    if rc == _APPMODEL_ERROR_NO_PACKAGE or rc != _ERROR_INSUFFICIENT_BUFFER:
+        return None
+    buf = ctypes.create_unicode_buffer(length.value)
+    if func(ctypes.byref(length), buf) != 0:
+        return None
+    return buf.value
+
+
+def is_packaged():
+    """True als NVict Reader als Microsoft Store (MSIX) app draait. In die
+    modus regelt de Store de updates en de .pdf-koppeling komt uit het
+    package-manifest i.p.v. uit het register."""
+    return get_package_family_name() is not None
 
 
 class DefaultPDFHandler:
@@ -49,6 +81,18 @@ class DefaultPDFHandler:
 
                 if prog_id == "NVictReader.PDF":
                     return True
+
+                # Store-versie: Windows maakt zelf een "AppX..."-ProgId aan
+                # waarvan de AppUserModelID met onze Package Family Name begint.
+                family_name = get_package_family_name()
+                if family_name:
+                    try:
+                        app_key = winreg.OpenKey(winreg.HKEY_CLASSES_ROOT, f"{prog_id}\\Application", 0, winreg.KEY_READ)
+                        aumid, _ = winreg.QueryValueEx(app_key, "AppUserModelID")
+                        winreg.CloseKey(app_key)
+                        return aumid.lower().startswith(family_name.lower() + "!")
+                    except OSError:
+                        return False
 
                 if "nvict" in prog_id_lower or "nvictreader" in prog_id_lower:
                     return True
