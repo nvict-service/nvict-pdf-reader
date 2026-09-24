@@ -5,8 +5,9 @@ De hex-waarden zijn ongewijzigd voor een consistente merk-look; alleen de
 toepassing verandert van losse tkinter-widgetkleuren naar QPalette + QSS.
 """
 
+from PySide6.QtCore import QEvent, QObject, Qt
 from PySide6.QtGui import QPalette, QColor
-from PySide6.QtWidgets import QApplication, QStyleFactory
+from PySide6.QtWidgets import QApplication, QMenu, QStyleFactory
 
 from .icon_utils import get_scrollbar_arrow_path
 from .resources import get_resource_path
@@ -266,6 +267,36 @@ def build_stylesheet(colors: dict) -> str:
     """
 
 
+class _RoundedMenuFilter(QObject):
+    """Maakt het venster achter élk QMenu doorzichtig en randloos, zodat de
+    afgeronde hoeken uit de QSS (border-radius) echt rond zijn.
+
+    Alleen WA_TranslucentBackground is op Windows niet genoeg: het popup-
+    venster houdt dan zijn eigen rechthoekige rand/schaduw, die als zwart
+    vlakje buiten de afgeronde hoek zichtbaar blijft. Via een app-breed
+    event-filter (op Polish, vóór het eerste tonen) geldt dit ook voor
+    menu's die Qt zelf maakt, zoals het rechtermuisklikmenu van tekstvelden.
+    """
+
+    def eventFilter(self, obj, event):
+        if event.type() == QEvent.Type.Polish and isinstance(obj, QMenu) and not obj.property("_nv_rounded"):
+            obj.setProperty("_nv_rounded", True)
+            obj.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, True)
+            obj.setWindowFlag(Qt.WindowType.FramelessWindowHint, True)
+            obj.setWindowFlag(Qt.WindowType.NoDropShadowWindowHint, True)
+        return False
+
+
+_menu_filter = None
+
+
+def _install_menu_filter(app: QApplication):
+    global _menu_filter
+    if _menu_filter is None:
+        _menu_filter = _RoundedMenuFilter(app)
+        app.installEventFilter(_menu_filter)
+
+
 def apply_theme(app: QApplication, mode: str = "Systeemstandaard") -> dict:
     """Pas het thema toe op de hele applicatie en geef de gebruikte kleuren terug.
 
@@ -276,6 +307,7 @@ def apply_theme(app: QApplication, mode: str = "Systeemstandaard") -> dict:
     geeft zo een consistent uiterlijk in zowel licht als donker thema.
     """
     app.setStyle(QStyleFactory.create("Fusion"))
+    _install_menu_filter(app)
     colors = resolve_theme(mode)
     app.setPalette(build_palette(colors))
     app.setStyleSheet(build_stylesheet(colors))

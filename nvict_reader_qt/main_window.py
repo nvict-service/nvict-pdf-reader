@@ -349,12 +349,7 @@ class MainWindow(QMainWindow):
         help_menu.addAction(self.action_check_updates)
         help_menu.addSeparator()
         help_menu.addAction(self.action_about)
-
-        # Afgeronde hoeken (QSS border-radius op QMenu) tonen anders
-        # scherpe randen buiten de afgeronde vorm, omdat het onderliggende
-        # popup-venster zelf nog rechthoekig blijft zonder deze vlag.
-        for menu in (file_menu, view_menu, tools_menu, edit_menu, settings_menu, help_menu):
-            menu.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
+        # Afgeronde hoeken van alle menu's: zie theme._RoundedMenuFilter.
 
     # Onder deze breedte past het volledige lint met tekst-onder-icoon niet
     # meer (natuurlijke breedte ligt rond de 3200px) - dan schakelen we over
