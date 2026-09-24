@@ -63,6 +63,15 @@ def add_recent_file(file_path: str):
     get_settings().setValue("recent_files", recent[:MAX_RECENT_FILES])
 
 
+def remove_recent_file(file_path: str):
+    recent = [path for path in get_recent_files() if path != file_path]
+    get_settings().setValue("recent_files", recent)
+
+
+def clear_recent_files():
+    get_settings().setValue("recent_files", [])
+
+
 def get_show_thumbnails_default() -> bool:
     """Of het paginaminiaturen-paneel standaard getoond wordt bij het
     openen van een document - door de gebruiker instelbaar (Instellingen)."""

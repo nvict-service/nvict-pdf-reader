@@ -281,6 +281,11 @@ EN = {
     "Welkom bij NVict Reader\n\nKlik op 'Openen' of druk op Ctrl+O om een PDF te laden.":
         "Welcome to NVict Reader\n\nClick 'Open' or press Ctrl+O to load a PDF.",
     "Recente bestanden": "Recent files",
+    "Lijst wissen": "Clear list",
+    "Alle recente bestanden uit de lijst verwijderen": "Remove all recent files from the list",
+    "Uit de lijst verwijderen": "Remove from list",
+    "Lijst met recente bestanden wissen": "Clear recent files list",
+    "Lijst met recente bestanden is gewist": "Recent files list cleared",
 
     # ── Updates ──
     "De controlesom van het gedownloade bestand klopt niet. De download is verwijderd en niet gestart.":

@@ -76,6 +76,10 @@ class SettingsDialog(QDialog):
         self.show_thumbnails_check = QCheckBox(tr("Pagina's (miniaturen) tonen bij het openen van een document"), view_box)
         self.show_thumbnails_check.setChecked(settings.get_show_thumbnails_default())
         view_layout.addWidget(self.show_thumbnails_check)
+        self.clear_recent_btn = QPushButton(tr("Lijst met recente bestanden wissen"), view_box)
+        self.clear_recent_btn.clicked.connect(self._clear_recent_files)
+        self.clear_recent_btn.setEnabled(bool(settings.get_recent_files()))
+        view_layout.addWidget(self.clear_recent_btn)
         layout.addWidget(view_box)
 
         default_box = QGroupBox(tr("Standaard PDF-viewer"), self)
@@ -112,6 +116,12 @@ class SettingsDialog(QDialog):
         )
         if reply == QMessageBox.StandardButton.Yes:
             DefaultPDFHandler.open_windows_default_apps_pdf()
+
+    def _clear_recent_files(self):
+        # Direct uitgevoerd (niet pas bij OK): het is een losse actie, geen instelling.
+        settings.clear_recent_files()
+        self.clear_recent_btn.setEnabled(False)
+        self.clear_recent_btn.setText(tr("Lijst met recente bestanden is gewist"))
 
     def get_theme_mode(self) -> str:
         for rb, label in self.theme_buttons.items():

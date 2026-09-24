@@ -784,7 +784,10 @@ class MainWindow(QMainWindow):
 
     def _open_settings(self):
         dialog = SettingsDialog(self)
-        if not dialog.exec():
+        accepted = dialog.exec()
+        # De recente-bestandenlijst kan in het venster al gewist zijn, ook bij Annuleren.
+        self.welcome_widget.refresh()
+        if not accepted:
             return
         mode = dialog.get_theme_mode()
         settings.save_theme_mode(mode)

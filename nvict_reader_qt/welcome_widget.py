@@ -18,7 +18,7 @@ import os
 
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtGui import QPixmap
-from PySide6.QtWidgets import QFrame, QHBoxLayout, QLabel, QVBoxLayout, QWidget
+from PySide6.QtWidgets import QFrame, QHBoxLayout, QLabel, QToolButton, QVBoxLayout, QWidget
 
 from . import settings, theme
 from .resources import get_resource_path
@@ -30,7 +30,7 @@ LOGO_HEIGHT = 56
 
 
 class _RecentFileRow(QFrame):
-    def __init__(self, path, colors, on_click, parent=None):
+    def __init__(self, path, colors, on_click, on_remove, parent=None):
         super().__init__(parent)
         self._bg_normal = colors["BG_SECONDARY"]
         self._bg_hover = colors["BG_PRIMARY"]
@@ -52,6 +52,18 @@ class _RecentFileRow(QFrame):
         dir_label = QLabel(directory, self)
         dir_label.setStyleSheet(f"background: transparent; color: {colors['TEXT_SECONDARY']};")
         layout.addWidget(dir_label)
+
+        # Eigen knop: vangt zijn klik zelf af, dus opent het bestand niet.
+        remove_btn = QToolButton(self)
+        remove_btn.setText("✕")
+        remove_btn.setToolTip(tr("Uit de lijst verwijderen"))
+        remove_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        remove_btn.setStyleSheet(
+            f"QToolButton {{ background: transparent; border: none; color: {colors['TEXT_SECONDARY']}; padding: 0 2px; }}"
+            f"QToolButton:hover {{ color: {colors['ERROR_COLOR']}; }}"
+        )
+        remove_btn.clicked.connect(lambda: on_remove(path))
+        layout.addWidget(remove_btn)
 
         for widget in (self, name_label, dir_label):
             widget.setCursor(Qt.CursorShape.PointingHandCursor)
@@ -124,10 +136,27 @@ class WelcomeWidget(QWidget):
         if not recent:
             return
 
-        header = QLabel(tr("Recente bestanden"), self.recent_container)
-        header.setStyleSheet(f"font-weight: bold; color: {colors['TEXT_SECONDARY']}; margin-bottom: 4px;")
-        self.recent_layout.addWidget(header)
+        header_row = QWidget(self.recent_container)
+        header_layout = QHBoxLayout(header_row)
+        header_layout.setContentsMargins(0, 0, 0, 4)
+        header = QLabel(tr("Recente bestanden"), header_row)
+        header.setStyleSheet(f"font-weight: bold; color: {colors['TEXT_SECONDARY']};")
+        header_layout.addWidget(header)
+        header_layout.addStretch()
+        clear_link = QLabel(f'<a href="#" style="color: {colors["ACCENT_COLOR"]};">{tr("Lijst wissen")}</a>', header_row)
+        clear_link.setToolTip(tr("Alle recente bestanden uit de lijst verwijderen"))
+        clear_link.linkActivated.connect(lambda _href: self._clear_recent())
+        header_layout.addWidget(clear_link)
+        self.recent_layout.addWidget(header_row)
 
         for path in recent:
-            row = _RecentFileRow(path, colors, self.file_chosen.emit, self.recent_container)
+            row = _RecentFileRow(path, colors, self.file_chosen.emit, self._remove_recent, self.recent_container)
             self.recent_layout.addWidget(row)
+
+    def _remove_recent(self, path):
+        settings.remove_recent_file(path)
+        self.refresh()
+
+    def _clear_recent(self):
+        settings.clear_recent_files()
+        self.refresh()
