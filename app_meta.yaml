@@ -50,6 +50,10 @@ msix_publisher: "CN=A36E9A1E-09A9-46C1-B87A-710DA70C8CBB"
 msix_publisher_display_name: "NVict Service"
 msix_display_name: "NVict Reader"
 msix_name: NVictReader.msix
+# Los pakketnummer voor de Store (app blijft 3.0): de Store accepteert elk
+# naam+versie-paar maar één keer, en 3.0.0.0 is al geüpload. Laatste getal
+# moet 0 zijn (Store-eis). Weghalen bij de volgende echte versie (bv. 3.1).
+msix_version: "3.0.1"
 # Store: https://apps.microsoft.com/detail/9NZQ4JXV6VKM  (Store ID 9NZQ4JXV6VKM)
 
 # GitHub (bestaande repo — naam moet matchen met remote)
