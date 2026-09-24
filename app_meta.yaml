@@ -42,15 +42,15 @@ update_check_url: "https://www.nvict.nl/software/updates/nvict_reader_version.js
 setup_signed: false
 
 # Microsoft Store (MSIX) — stap 'msix' bouwt Output/NVictReader.msix.
-# Zet msix_enabled op true zodra Identity Name + Publisher bekend zijn:
-# Partner Center → NVict Reader → Productbeheer → Productidentiteit
+# Identity Name + Publisher komen uit Partner Center → NVict Reader → Productbeheer → Productidentiteit
 # ("Package/Identity/Name" en "Package/Identity/Publisher").
-msix_enabled: false
-msix_identity_name: ""
-msix_publisher: ""
+msix_enabled: true
+msix_identity_name: NVictService.NVictReader
+msix_publisher: "CN=A36E9A1E-09A9-46C1-B87A-710DA70C8CBB"
 msix_publisher_display_name: "NVict Service"
 msix_display_name: "NVict Reader"
 msix_name: NVictReader.msix
+# Store: https://apps.microsoft.com/detail/9NZQ4JXV6VKM  (Store ID 9NZQ4JXV6VKM)
 
 # GitHub (bestaande repo — naam moet matchen met remote)
 github_repo: nvict-pdf-reader
