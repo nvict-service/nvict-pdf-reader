@@ -22,6 +22,7 @@ from PySide6.QtWidgets import QFrame, QHBoxLayout, QLabel, QVBoxLayout, QWidget
 
 from . import settings, theme
 from .resources import get_resource_path
+from .i18n import tr
 
 MAX_RECENT_SHOWN = 5
 MAX_DIR_LENGTH = 55
@@ -87,7 +88,7 @@ class WelcomeWidget(QWidget):
             outer.addWidget(logo_label)
 
         self.title_label = QLabel(
-            "Welkom bij NVict Reader\n\nKlik op 'Openen' of druk op Ctrl+O om een PDF te laden.", self
+            tr("Welkom bij NVict Reader\n\nKlik op 'Openen' of druk op Ctrl+O om een PDF te laden."), self
         )
         self.title_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.title_label.setStyleSheet("font-size: 16px;")
@@ -123,7 +124,7 @@ class WelcomeWidget(QWidget):
         if not recent:
             return
 
-        header = QLabel("Recente bestanden", self.recent_container)
+        header = QLabel(tr("Recente bestanden"), self.recent_container)
         header.setStyleSheet(f"font-weight: bold; color: {colors['TEXT_SECONDARY']}; margin-bottom: 4px;")
         self.recent_layout.addWidget(header)
 

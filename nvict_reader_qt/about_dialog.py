@@ -18,6 +18,7 @@ from PySide6.QtGui import QPainter, QPixmap
 from PySide6.QtWidgets import QDialog, QFrame, QLabel, QPushButton, QVBoxLayout
 
 from . import settings, theme
+from .i18n import tr
 from .resources import get_resource_path
 from .update_checker import APP_VERSION
 
@@ -45,7 +46,7 @@ FEATURES = [
 class AboutDialog(QDialog):
     def __init__(self, parent, website_url: str):
         super().__init__(parent)
-        self.setWindowTitle("Over NVict Reader")
+        self.setWindowTitle(tr("Over NVict Reader"))
         self.setFixedWidth(420)
         # Expliciete thema-kleuren i.p.v. palette(mid)/palette(link): die
         # QPalette-rollen worden door theme.py niet gezet en gaven daardoor
@@ -60,7 +61,7 @@ class AboutDialog(QDialog):
         header = QFrame(self)
         header.setStyleSheet(f"background-color: {colors['ACCENT_COLOR']};")
         header_layout = QVBoxLayout(header)
-        header_label = QLabel("Over NVict Reader", header)
+        header_label = QLabel(tr("Over NVict Reader"), header)
         header_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         header_label.setStyleSheet("color: white; font-size: 15px; font-weight: bold; background: transparent;")
         header_layout.addWidget(header_label)
@@ -91,7 +92,7 @@ class AboutDialog(QDialog):
         title_label.setStyleSheet("font-size: 16px; font-weight: bold; margin-top: 10px;")
         content.addWidget(title_label)
 
-        version_label = QLabel(f"Versie {APP_VERSION}", self)
+        version_label = QLabel(tr("Versie {version}", version=APP_VERSION), self)
         version_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         content.addWidget(version_label)
 
@@ -99,7 +100,7 @@ class AboutDialog(QDialog):
         copyright_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         content.addWidget(copyright_label)
 
-        disclaimer_label = QLabel(DISCLAIMER_TEXT, self)
+        disclaimer_label = QLabel(tr(DISCLAIMER_TEXT), self)
         disclaimer_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         disclaimer_label.setWordWrap(True)
         disclaimer_label.setStyleSheet(
@@ -110,11 +111,11 @@ class AboutDialog(QDialog):
         features_box = QFrame(self)
         features_box.setStyleSheet(f"background-color: {colors['BG_SECONDARY']}; border-radius: 6px;")
         features_layout = QVBoxLayout(features_box)
-        features_title = QLabel("Functies:", features_box)
+        features_title = QLabel(tr("Functies:"), features_box)
         features_title.setStyleSheet("font-weight: bold; background: transparent;")
         features_layout.addWidget(features_title)
         for feature in FEATURES:
-            label = QLabel(f"✓ {feature}", features_box)
+            label = QLabel(f"✓ {tr(feature)}", features_box)
             label.setStyleSheet("background: transparent;")
             features_layout.addWidget(label)
         content.addWidget(features_box)
@@ -125,12 +126,12 @@ class AboutDialog(QDialog):
         link_label.setOpenExternalLinks(True)
         content.addWidget(link_label)
 
-        github_label = QLabel(f'<a href="{GITHUB_URL}">Broncode op GitHub</a>', self)
+        github_label = QLabel(f'<a href="{GITHUB_URL}">{tr("Broncode op GitHub")}</a>', self)
         github_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         github_label.setOpenExternalLinks(True)
         content.addWidget(github_label)
 
-        credit_label = QLabel(f'<a href="{FLATICON_URL}">Iconen door Freepik - Flaticon</a>', self)
+        credit_label = QLabel(f'<a href="{FLATICON_URL}">{tr("Iconen door Freepik - Flaticon")}</a>', self)
         credit_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         credit_label.setStyleSheet(f"color: {colors['TEXT_SECONDARY']}; font-size: 11px;")
         credit_label.setOpenExternalLinks(True)
@@ -141,7 +142,7 @@ class AboutDialog(QDialog):
         footer = QFrame(self)
         footer.setStyleSheet(f"background-color: {colors['BG_SECONDARY']};")
         footer_layout = QVBoxLayout(footer)
-        close_button = QPushButton("Sluiten", footer)
+        close_button = QPushButton(tr("Sluiten"), footer)
         close_button.clicked.connect(self.accept)
         footer_layout.addWidget(close_button, alignment=Qt.AlignmentFlag.AlignCenter)
         outer.addWidget(footer)

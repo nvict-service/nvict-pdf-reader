@@ -36,6 +36,15 @@ def save_theme_mode(mode: str):
     get_settings().setValue("theme", mode)
 
 
+def get_language() -> str:
+    """"system" (volgt Windows), "nl" of "en" - zie i18n.py."""
+    return get_settings().value("language", "system", type=str)
+
+
+def save_language(language: str):
+    get_settings().setValue("language", language)
+
+
 MAX_RECENT_FILES = 10
 
 

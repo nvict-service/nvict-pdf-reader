@@ -28,12 +28,13 @@ from PySide6.QtWidgets import (
 
 from . import print_backend
 from .print_backend import PrintOptions
+from .i18n import tr
 
 
 class PrintDialog(QDialog):
     def __init__(self, parent, document_title, total_pages, current_page):
         super().__init__(parent)
-        self.setWindowTitle("PDF Afdrukken")
+        self.setWindowTitle(tr("PDF Afdrukken"))
         self.setMinimumWidth(420)
         self.total_pages = total_pages
         self.current_page = current_page  # 0-indexed
@@ -48,71 +49,71 @@ class PrintDialog(QDialog):
 
         # ── Printer ──
         printer_row = QHBoxLayout()
-        printer_row.addWidget(QLabel("Printer:"))
+        printer_row.addWidget(QLabel(tr("Printer:")))
         self.printer_combo = QComboBox(self)
         names = print_backend.list_printer_names()
         self.printer_combo.addItems(names)
         if default_name in names:
             self.printer_combo.setCurrentText(default_name)
         printer_row.addWidget(self.printer_combo)
-        settings_btn = QPushButton("Printer instellingen...", self)
+        settings_btn = QPushButton(tr("Printer instellingen..."), self)
         settings_btn.clicked.connect(self._open_page_setup)
         printer_row.addWidget(settings_btn)
         layout.addLayout(printer_row)
 
         # ── Pagina's ──
-        pages_box = QGroupBox("Pagina's", self)
+        pages_box = QGroupBox(tr("Pagina's"), self)
         pages_layout = QVBoxLayout(pages_box)
         self.page_group = QButtonGroup(self)
-        self.radio_all = QRadioButton(f"Alle pagina's ({total_pages})", self)
+        self.radio_all = QRadioButton(tr("Alle pagina's ({count})", count=total_pages), self)
         self.radio_all.setChecked(True)
-        self.radio_current = QRadioButton(f"Huidige pagina ({current_page + 1})", self)
-        self.radio_custom = QRadioButton("Aangepast:", self)
+        self.radio_current = QRadioButton(tr("Huidige pagina ({page})", page=current_page + 1), self)
+        self.radio_custom = QRadioButton(tr("Aangepast:"), self)
         for rb in (self.radio_all, self.radio_current, self.radio_custom):
             self.page_group.addButton(rb)
             pages_layout.addWidget(rb)
         self.custom_entry = QLineEdit(self)
-        self.custom_entry.setPlaceholderText("bv. 1,3,5 of 1-3,5,7-9")
+        self.custom_entry.setPlaceholderText(tr("bv. 1,3,5 of 1-3,5,7-9"))
         pages_layout.addWidget(self.custom_entry)
         layout.addWidget(pages_box)
 
         # ── Opties ──
-        options_box = QGroupBox("Opties", self)
+        options_box = QGroupBox(tr("Opties"), self)
         options_layout = QVBoxLayout(options_box)
         form = QFormLayout()
         self.copies_spin = QSpinBox(self)
         self.copies_spin.setRange(1, 99)
         self.copies_spin.setValue(1)
-        form.addRow("Aantal kopieën:", self.copies_spin)
+        form.addRow(tr("Aantal kopieën:"), self.copies_spin)
         options_layout.addLayout(form)
 
-        self.fit_to_page_check = QCheckBox("Passend maken op pagina", self)
+        self.fit_to_page_check = QCheckBox(tr("Passend maken op pagina"), self)
         self.fit_to_page_check.setChecked(True)
         options_layout.addWidget(self.fit_to_page_check)
 
-        self.duplex_check = QCheckBox("Dubbelzijdig printen", self)
+        self.duplex_check = QCheckBox(tr("Dubbelzijdig printen"), self)
         options_layout.addWidget(self.duplex_check)
         layout.addWidget(options_box)
 
         # ── Kleur ──
-        color_box = QGroupBox("Kleur", self)
+        color_box = QGroupBox(tr("Kleur"), self)
         color_row = QHBoxLayout(color_box)
         self.color_group = QButtonGroup(self)
-        self.radio_color = QRadioButton("Kleur", self)
+        self.radio_color = QRadioButton(tr("Kleur"), self)
         self.radio_color.setChecked(True)
-        self.radio_bw = QRadioButton("Zwart-wit", self)
+        self.radio_bw = QRadioButton(tr("Zwart-wit"), self)
         for rb in (self.radio_color, self.radio_bw):
             self.color_group.addButton(rb)
             color_row.addWidget(rb)
         layout.addWidget(color_box)
 
         # ── Rotatie ──
-        rotation_box = QGroupBox("Rotatie", self)
+        rotation_box = QGroupBox(tr("Rotatie"), self)
         rotation_row = QHBoxLayout(rotation_box)
         self.rotation_group = QButtonGroup(self)
         self.rotation_values = {}
         for label, value in [("Geen", 0), ("90° rechts", 90), ("180°", 180), ("90° links", 270)]:
-            rb = QRadioButton(label, self)
+            rb = QRadioButton(tr(label), self)
             rb.setChecked(value == 0)
             self.rotation_group.addButton(rb)
             self.rotation_values[rb] = value
@@ -120,20 +121,20 @@ class PrintDialog(QDialog):
         layout.addWidget(rotation_box)
 
         # ── Oriëntatie ──
-        orientation_box = QGroupBox("Oriëntatie", self)
+        orientation_box = QGroupBox(tr("Oriëntatie"), self)
         orientation_row = QHBoxLayout(orientation_box)
         self.orientation_group = QButtonGroup(self)
-        self.radio_portrait = QRadioButton("Staand", self)
+        self.radio_portrait = QRadioButton(tr("Staand"), self)
         self.radio_portrait.setChecked(True)
-        self.radio_landscape = QRadioButton("Liggend", self)
+        self.radio_landscape = QRadioButton(tr("Liggend"), self)
         for rb in (self.radio_portrait, self.radio_landscape):
             self.orientation_group.addButton(rb)
             orientation_row.addWidget(rb)
         layout.addWidget(orientation_box)
 
         buttons = QDialogButtonBox(self)
-        self.print_btn = buttons.addButton("Afdrukken", QDialogButtonBox.ButtonRole.AcceptRole)
-        buttons.addButton("Annuleren", QDialogButtonBox.ButtonRole.RejectRole)
+        self.print_btn = buttons.addButton(tr("Afdrukken"), QDialogButtonBox.ButtonRole.AcceptRole)
+        buttons.addButton(tr("Annuleren"), QDialogButtonBox.ButtonRole.RejectRole)
         buttons.accepted.connect(self._on_accept)
         buttons.rejected.connect(self.reject)
         layout.addWidget(buttons)
@@ -168,11 +169,11 @@ class PrintDialog(QDialog):
 
         if self.duplex_check.isChecked():
             reply = QMessageBox.question(
-                self, "Dubbelzijdig printen",
-                "Dubbelzijdig printen is geselecteerd.\n\n"
-                "Let op: niet alle printers ondersteunen automatisch dubbelzijdig printen.\n\n"
-                "Als uw printer dit niet ondersteunt, ziet u een dialoog om het papier "
-                "handmatig om te draaien.\n\nWilt u doorgaan?",
+                self, tr("Dubbelzijdig printen"),
+                tr("Dubbelzijdig printen is geselecteerd.\n\n"
+                   "Let op: niet alle printers ondersteunen automatisch dubbelzijdig printen.\n\n"
+                   "Als uw printer dit niet ondersteunt, ziet u een dialoog om het papier "
+                   "handmatig om te draaien.\n\nWilt u doorgaan?"),
             )
             if reply != QMessageBox.StandardButton.Yes:
                 return
@@ -187,9 +188,9 @@ class PrintDialog(QDialog):
             pages = print_backend.parse_page_range(self.custom_entry.text(), self.total_pages)
             if not pages:
                 QMessageBox.critical(
-                    self, "Ongeldige pagina's",
-                    "Ongeldige pagina selectie.\n\nGebruik formaat zoals:\n"
-                    "• 1,3,5 (specifieke pagina's)\n• 1-5 (bereik)\n• 1-3,5,7-9 (combinatie)",
+                    self, tr("Ongeldige pagina's"),
+                    tr("Ongeldige pagina selectie.\n\nGebruik formaat zoals:\n"
+                       "• 1,3,5 (specifieke pagina's)\n• 1-5 (bereik)\n• 1-3,5,7-9 (combinatie)"),
                 )
                 return None
             return pages

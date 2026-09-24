@@ -13,6 +13,7 @@ from PySide6.QtGui import QImage, QPixmap
 from PySide6.QtWidgets import QLabel, QVBoxLayout, QWidget
 
 from .document import get_fitz
+from .i18n import tr
 
 HINT_HIDE_DELAY_MS = 4000
 HINT_TEXT = "Escape / F11 om te verlaten   ·   ← → voor navigatie"
@@ -36,7 +37,7 @@ class FullscreenWindow(QWidget):
         self.page_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         layout.addWidget(self.page_label)
 
-        self.hint_label = QLabel(HINT_TEXT, self)
+        self.hint_label = QLabel(tr(HINT_TEXT), self)
         self.hint_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.hint_label.setStyleSheet(
             "background-color: #1e1e1e; color: #dddddd; font-size: 14px; padding: 14px;"
@@ -78,7 +79,7 @@ class FullscreenWindow(QWidget):
         self.page_label.setPixmap(QPixmap.fromImage(image.copy()))
 
         total = len(self.pdf_document)
-        self.info_label.setText(f"Pagina {self.page_num + 1} / {total}  ·  Escape om te sluiten")
+        self.info_label.setText(tr("Pagina {page} / {total}  ·  Escape om te sluiten", page=self.page_num + 1, total=total))
         self.info_label.setGeometry(
             0, screen_h - self.info_label.sizeHint().height() - 10, screen_w, self.info_label.sizeHint().height()
         )

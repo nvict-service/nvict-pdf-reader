@@ -22,6 +22,8 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from .i18n import tr
+
 WIDTH_PRESETS = {"Klein": 100.0, "Middel": 160.0, "Groot": 220.0}
 PEN_WIDTH = 3
 
@@ -97,7 +99,7 @@ class SignaturePadWidget(QWidget):
 class SignatureDialog(QDialog):
     def __init__(self, parent=None):
         super().__init__(parent)
-        self.setWindowTitle("Handtekening plaatsen")
+        self.setWindowTitle(tr("Handtekening plaatsen"))
         self.setMinimumWidth(460)
         self._uploaded_image = None
 
@@ -110,27 +112,29 @@ class SignatureDialog(QDialog):
         draw_layout = QVBoxLayout(draw_tab)
         self.pad = SignaturePadWidget()
         draw_layout.addWidget(self.pad)
-        clear_btn = QPushButton("Wissen", draw_tab)
+        clear_btn = QPushButton(tr("Wissen"), draw_tab)
         clear_btn.clicked.connect(self.pad.clear)
         draw_layout.addWidget(clear_btn)
-        self.tabs.addTab(draw_tab, "Tekenen")
+        self.tabs.addTab(draw_tab, tr("Tekenen"))
 
         upload_tab = QWidget()
         upload_layout = QVBoxLayout(upload_tab)
-        choose_btn = QPushButton("Kies afbeelding...", upload_tab)
+        choose_btn = QPushButton(tr("Kies afbeelding..."), upload_tab)
         choose_btn.clicked.connect(self._choose_image)
         upload_layout.addWidget(choose_btn)
-        self.preview_label = QLabel("Geen afbeelding gekozen", upload_tab)
+        self.preview_label = QLabel(tr("Geen afbeelding gekozen"), upload_tab)
         self.preview_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.preview_label.setMinimumHeight(150)
         upload_layout.addWidget(self.preview_label)
-        self.tabs.addTab(upload_tab, "Afbeelding")
+        self.tabs.addTab(upload_tab, tr("Afbeelding"))
 
         size_row = QHBoxLayout()
-        size_row.addWidget(QLabel("Formaat:", self))
+        size_row.addWidget(QLabel(tr("Formaat:"), self))
         self.size_combo = QComboBox(self)
-        self.size_combo.addItems(list(WIDTH_PRESETS.keys()))
-        self.size_combo.setCurrentText("Middel")
+        # Label vertaald, de Nederlandse sleutel als itemData (zie get_target_width_pt).
+        for key in WIDTH_PRESETS:
+            self.size_combo.addItem(tr(key), key)
+        self.size_combo.setCurrentIndex(self.size_combo.findData("Middel"))
         size_row.addWidget(self.size_combo)
         layout.addLayout(size_row)
 
@@ -141,13 +145,13 @@ class SignatureDialog(QDialog):
 
     def _choose_image(self):
         path, _ = QFileDialog.getOpenFileName(
-            self, "Afbeelding kiezen", "", "Afbeeldingen (*.png *.jpg *.jpeg *.bmp)"
+            self, tr("Afbeelding kiezen"), "", tr("Afbeeldingen (*.png *.jpg *.jpeg *.bmp)")
         )
         if not path:
             return
         image = QImage(path)
         if image.isNull():
-            QMessageBox.critical(self, "Ongeldige afbeelding", "Kan deze afbeelding niet openen.")
+            QMessageBox.critical(self, tr("Ongeldige afbeelding"), tr("Kan deze afbeelding niet openen."))
             return
         self._uploaded_image = image
         self.preview_label.setPixmap(
@@ -158,7 +162,7 @@ class SignatureDialog(QDialog):
 
     def _on_accept(self):
         if self.get_image() is None:
-            QMessageBox.warning(self, "Geen handtekening", "Teken een handtekening of kies een afbeelding.")
+            QMessageBox.warning(self, tr("Geen handtekening"), tr("Teken een handtekening of kies een afbeelding."))
             return
         self.accept()
 
@@ -169,4 +173,4 @@ class SignatureDialog(QDialog):
         return self._uploaded_image
 
     def get_target_width_pt(self) -> float:
-        return WIDTH_PRESETS.get(self.size_combo.currentText(), 160.0)
+        return WIDTH_PRESETS.get(self.size_combo.currentData(), 160.0)

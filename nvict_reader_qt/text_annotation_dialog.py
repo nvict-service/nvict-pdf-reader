@@ -21,6 +21,7 @@ from PySide6.QtWidgets import (
 )
 
 from .annotations import DEFAULT_FONT_SIZE, DEFAULT_TEXT_COLOR, FONT_MAP, MAX_FONT_SIZE, MIN_FONT_SIZE
+from .i18n import tr
 
 _FONT_NAME_BY_CODE = {v: k for k, v in FONT_MAP.items()}
 
@@ -30,7 +31,7 @@ class TextAnnotationDialog(QDialog):
 
     def __init__(self, parent=None, existing: dict | None = None):
         super().__init__(parent)
-        self.setWindowTitle("Tekst bewerken" if existing else "Tekst toevoegen")
+        self.setWindowTitle(tr("Tekst bewerken") if existing else tr("Tekst toevoegen"))
         self.setMinimumWidth(360)
         self._delete_requested = False
         self._color = (existing or {}).get("color", DEFAULT_TEXT_COLOR)
@@ -38,13 +39,13 @@ class TextAnnotationDialog(QDialog):
         layout = QVBoxLayout(self)
 
         options_row = QHBoxLayout()
-        options_row.addWidget(QLabel("Lettertype:"))
+        options_row.addWidget(QLabel(tr("Lettertype:")))
         self.font_combo = QComboBox(self)
         self.font_combo.addItems(list(FONT_MAP.keys()))
         self.font_combo.setCurrentText(_FONT_NAME_BY_CODE.get((existing or {}).get("fontname", "helv"), "Helvetica"))
         options_row.addWidget(self.font_combo)
 
-        options_row.addWidget(QLabel("Grootte:"))
+        options_row.addWidget(QLabel(tr("Grootte:")))
         self.size_spin = QSpinBox(self)
         self.size_spin.setRange(MIN_FONT_SIZE, MAX_FONT_SIZE)
         self.size_spin.setValue((existing or {}).get("font_size", DEFAULT_FONT_SIZE))
@@ -52,8 +53,8 @@ class TextAnnotationDialog(QDialog):
         layout.addLayout(options_row)
 
         color_row = QHBoxLayout()
-        color_row.addWidget(QLabel("Kleur:"))
-        self.color_btn = QPushButton("Kleur kiezen...", self)
+        color_row.addWidget(QLabel(tr("Kleur:")))
+        self.color_btn = QPushButton(tr("Kleur kiezen..."), self)
         self.color_btn.clicked.connect(self._choose_color)
         color_row.addWidget(self.color_btn)
         layout.addLayout(color_row)
@@ -69,14 +70,14 @@ class TextAnnotationDialog(QDialog):
         buttons.rejected.connect(self.reject)
 
         if existing is not None:
-            delete_btn = QPushButton("Verwijderen", self)
+            delete_btn = QPushButton(tr("Verwijderen"), self)
             delete_btn.clicked.connect(self._on_delete)
             buttons.addButton(delete_btn, QDialogButtonBox.ButtonRole.DestructiveRole)
 
         layout.addWidget(buttons)
 
     def _choose_color(self):
-        color = QColorDialog.getColor(QColor(self._color), self, "Kleur kiezen")
+        color = QColorDialog.getColor(QColor(self._color), self, tr("Kleur kiezen"))
         if color.isValid():
             self._color = color.name()
             self._update_color_swatch()

@@ -20,6 +20,7 @@ import os
 from PySide6.QtWidgets import QMessageBox
 
 from . import save_pdf
+from .i18n import tr
 
 MAPI_LOGON_UI = 0x00000001
 MAPI_DIALOG = 0x00000008
@@ -110,9 +111,9 @@ def send_as_attachment(parent, tab):
             )
         except Exception as exc:
             QMessageBox.critical(
-                parent, "Wijzigingen niet verwerkt",
-                "De wijzigingen konden niet in de PDF worden verwerkt.\n\n"
-                f"Details: {exc}\n\nEr is niets verstuurd.",
+                parent, tr("Wijzigingen niet verwerkt"),
+                tr("De wijzigingen konden niet in de PDF worden verwerkt.\n\n"
+                   "Details: {error}\n\nEr is niets verstuurd.", error=exc),
             )
             return
         if tmp_path:
@@ -123,14 +124,14 @@ def send_as_attachment(parent, tab):
         result = call_mapi_send_mail(message)
     except OSError as exc:
         QMessageBox.critical(
-            parent, "Verzenden mislukt",
-            f"Kan het e-mailprogramma niet aanroepen.\n\nDetails: {exc}",
+            parent, tr("Verzenden mislukt"),
+            tr("Kan het e-mailprogramma niet aanroepen.\n\nDetails: {error}", error=exc),
         )
         return
 
     if result not in (SUCCESS_SUCCESS, MAPI_E_USER_ABORT):
         QMessageBox.critical(
-            parent, "Verzenden mislukt",
-            "Kan geen e-mailprogramma vinden. Controleer of er een standaard-mailprogramma "
-            f"is ingesteld in Windows.\n\nMAPI-foutcode: {result}",
+            parent, tr("Verzenden mislukt"),
+            tr("Kan geen e-mailprogramma vinden. Controleer of er een standaard-mailprogramma "
+               "is ingesteld in Windows.\n\nMAPI-foutcode: {code}", code=result),
         )

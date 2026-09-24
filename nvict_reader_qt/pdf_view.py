@@ -28,6 +28,7 @@ from .annotations import HIGHLIGHT_COLOR, HighlightAnnotation, SignatureAnnotati
 from .document import get_fitz
 from .signature_dialog import SignatureDialog
 from .text_annotation_dialog import TextAnnotationDialog
+from .i18n import tr
 
 RENDER_DEBOUNCE_MS = 60
 PLACEHOLDER_COLOR = QColor("#d9d9d9")
@@ -304,23 +305,23 @@ class PdfGraphicsView(QGraphicsView):
         info = []
         try:
             if self.pdf_document.is_encrypted:
-                info.append("🔒 Beveiligd (wachtwoord)")
+                info.append("🔒 " + tr("Beveiligd (wachtwoord)"))
 
             perms = self.pdf_document.permissions
             restrictions = []
             if not (perms & 4):
-                restrictions.append("afdrukken")
+                restrictions.append(tr("afdrukken"))
             if not (perms & 8):
-                restrictions.append("bewerken")
+                restrictions.append(tr("bewerken"))
             if not (perms & 16):
-                restrictions.append("kopiëren")
+                restrictions.append(tr("kopiëren"))
             if not (perms & 32):
-                restrictions.append("annotaties")
+                restrictions.append(tr("annotaties"))
             if restrictions:
-                info.append(f"🔐 Beperkt ({', '.join(restrictions)})")
+                info.append("🔐 " + tr("Beperkt ({items})", items=", ".join(restrictions)))
 
             if self._detect_signatures():
-                info.append("🔏 Digitaal ondertekend")
+                info.append("🔏 " + tr("Digitaal ondertekend"))
         except Exception:
             pass
         return " | ".join(info)
@@ -889,7 +890,7 @@ class PdfGraphicsView(QGraphicsView):
         highlight = self._highlight_at(entry, scene_pos)
         if highlight is not None:
             menu = QMenu(self)
-            remove_action = menu.addAction("Markering verwijderen")
+            remove_action = menu.addAction(tr("Markering verwijderen"))
             chosen = menu.exec(self.viewport().mapToGlobal(self.mapFromScene(scene_pos)))
             if chosen == remove_action:
                 self._remove_highlight(highlight)
@@ -899,7 +900,7 @@ class PdfGraphicsView(QGraphicsView):
         if signature_hit is not None:
             annotation, item = signature_hit
             menu = QMenu(self)
-            remove_action = menu.addAction("Handtekening verwijderen")
+            remove_action = menu.addAction(tr("Handtekening verwijderen"))
             chosen = menu.exec(self.viewport().mapToGlobal(self.mapFromScene(scene_pos)))
             if chosen == remove_action:
                 self._remove_signature(annotation, item)
@@ -939,15 +940,15 @@ class PdfGraphicsView(QGraphicsView):
     def _open_external_link(self, uri):
         if not security.is_safe_link_url(uri):
             QMessageBox.warning(
-                self, "Link geblokkeerd",
-                "Deze link is niet geopend omdat het geen gewone web- of e-mailkoppeling is.\n\n"
-                "Alleen http, https en mailto worden toegestaan.",
+                self, tr("Link geblokkeerd"),
+                tr("Deze link is niet geopend omdat het geen gewone web- of e-mailkoppeling is.\n\n"
+                   "Alleen http, https en mailto worden toegestaan."),
             )
             return
 
         box = QMessageBox(self)
-        box.setWindowTitle("Link openen")
-        box.setText("Weet je zeker dat je deze link wilt openen?")
+        box.setWindowTitle(tr("Link openen"))
+        box.setText(tr("Weet je zeker dat je deze link wilt openen?"))
         box.setInformativeText(security.shorten_for_display(uri))
         box.setStandardButtons(QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No)
         box.setDefaultButton(QMessageBox.StandardButton.No)
@@ -955,7 +956,7 @@ class PdfGraphicsView(QGraphicsView):
             try:
                 webbrowser.open(uri)
             except Exception as exc:
-                QMessageBox.critical(self, "Fout", f"Kan de link niet openen:\n{exc}")
+                QMessageBox.critical(self, tr("Fout"), tr("Kan de link niet openen:") + f"\n{exc}")
 
     # ── Tekstselectie & kopiëren (fase 6) ────────────────────────────────
 

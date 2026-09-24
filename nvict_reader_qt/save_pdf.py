@@ -15,6 +15,7 @@ from PySide6.QtWidgets import QFileDialog, QMessageBox
 from . import form_overlay
 from .annotations import hex_to_fitz_rgb
 from .document import get_fitz
+from .i18n import tr
 
 
 def build_modified_pdf(file_path, text_annotations, highlight_annotations, pending_rotations=None,
@@ -103,11 +104,11 @@ def save_as(parent, tab) -> bool:
     """Toon 'Opslaan als', schrijf de annotaties weg. Geeft True bij succes."""
     view = tab.view
     if not view.has_unsaved_changes():
-        QMessageBox.information(parent, "Niets te bewaren", "Er zijn geen wijzigingen om op te slaan.")
+        QMessageBox.information(parent, tr("Niets te bewaren"), tr("Er zijn geen wijzigingen om op te slaan."))
         return False
 
-    suggested = os.path.splitext(tab.file_path)[0] + "_bewerkt.pdf"
-    target_path, _ = QFileDialog.getSaveFileName(parent, "PDF opslaan als", suggested, "PDF-bestanden (*.pdf)")
+    suggested = os.path.splitext(tab.file_path)[0] + tr("_bewerkt") + ".pdf"
+    target_path, _ = QFileDialog.getSaveFileName(parent, tr("PDF opslaan als"), suggested, tr("PDF-bestanden (*.pdf)"))
     if not target_path:
         return False
 
@@ -120,11 +121,11 @@ def save_as(parent, tab) -> bool:
             return False
         shutil.move(tmp_path, target_path)
     except Exception as exc:
-        QMessageBox.critical(parent, "Opslaan mislukt", f"Kon het bestand niet opslaan:\n\n{exc}")
+        QMessageBox.critical(parent, tr("Opslaan mislukt"), tr("Kon het bestand niet opslaan:") + f"\n\n{exc}")
         return False
 
     view.clear_saved_changes()
-    QMessageBox.information(parent, "Opgeslagen", f"Opgeslagen als:\n{target_path}")
+    QMessageBox.information(parent, tr("Opgeslagen"), tr("Opgeslagen als:") + f"\n{target_path}")
     return True
 
 
@@ -139,7 +140,7 @@ def confirm_discard_unsaved(parent, view) -> bool:
     if not view.has_unsaved_changes():
         return True
     reply = QMessageBox.question(
-        parent, "Niet-opgeslagen wijzigingen",
-        "Er zijn nog niet-opgeslagen wijzigingen op dit tabblad.\n\nDoorgaan?",
+        parent, tr("Niet-opgeslagen wijzigingen"),
+        tr("Er zijn nog niet-opgeslagen wijzigingen op dit tabblad.\n\nDoorgaan?"),
     )
     return reply == QMessageBox.StandardButton.Yes

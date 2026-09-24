@@ -14,6 +14,7 @@ from PySide6.QtGui import QIcon, QImage, QPixmap
 from PySide6.QtWidgets import QListView, QListWidget, QListWidgetItem
 
 from .document import get_fitz
+from .i18n import tr
 
 THUMBNAIL_WIDTH = 120
 RENDER_DEBOUNCE_MS = 60
@@ -51,7 +52,7 @@ class ThumbnailPanel(QListWidget):
         if not self.view.pdf_document:
             return
         for page_num in range(len(self.view.pdf_document)):
-            item = QListWidgetItem(f"Pagina {page_num + 1}")
+            item = QListWidgetItem(tr("Pagina {page}", page=page_num + 1))
             item.setData(Qt.ItemDataRole.UserRole, page_num)
             item.setTextAlignment(Qt.AlignmentFlag.AlignHCenter)
             self.addItem(item)

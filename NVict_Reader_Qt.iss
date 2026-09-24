@@ -82,8 +82,23 @@ CloseApplications=yes
 CloseApplicationsFilter=NVict Reader.exe
 RestartApplications=no
 
+; TAAL: Inno kiest zelf op basis van de taal van Windows (Nederlands bij een
+; Nederlandse Windows, anders de eerste taal hieronder = Engels), zonder
+; keuzevenster - net als de app zelf (zie nvict_reader_qt/i18n.py).
+ShowLanguageDialog=no
+LanguageDetectionMethod=uilanguage
+
 [Languages]
+Name: "english"; MessagesFile: "compiler:Default.isl"
 Name: "dutch"; MessagesFile: "compiler:Languages\Dutch.isl"
+
+[CustomMessages]
+english.PrintVerb=Print
+dutch.PrintVerb=Afdrukken
+english.AppDescription=View and edit PDF files.
+dutch.AppDescription=Bekijk en bewerk PDF bestanden.
+english.OpenWithApp=Open with NVict Reader
+dutch.OpenWithApp=Open met NVict Reader
 
 [Files]
 ; MAIN APPLICATION - one-folder (onedir) PyInstaller-build van de Qt-app.
@@ -117,7 +132,7 @@ Root: HKCU; Subkey: "Software\RegisteredApplications"; ValueType: none; ValueNam
 Root: HKA; Subkey: "Software\Classes\NVictReader.PDF"; ValueType: string; ValueData: "NVict Reader PDF Document"; Flags: uninsdeletekey
 Root: HKA; Subkey: "Software\Classes\NVictReader.PDF\DefaultIcon"; ValueType: string; ValueData: "{app}\PDF_File_icon.ico,0"
 Root: HKA; Subkey: "Software\Classes\NVictReader.PDF\shell\open\command"; ValueType: string; ValueData: """{app}\{#MyAppExeName}"" ""%1"""
-Root: HKA; Subkey: "Software\Classes\NVictReader.PDF\shell\print"; ValueType: string; ValueData: "Afdrukken"
+Root: HKA; Subkey: "Software\Classes\NVictReader.PDF\shell\print"; ValueType: string; ValueData: "{cm:PrintVerb}"
 Root: HKA; Subkey: "Software\Classes\NVictReader.PDF\shell\print\command"; ValueType: string; ValueData: """{app}\{#MyAppExeName}"" --print ""%1"""
 
 ; --- 3. FILE ASSOCIATIONS (Koppeling maken) ---
@@ -125,7 +140,7 @@ Root: HKA; Subkey: "Software\Classes\.pdf\OpenWithProgids"; ValueType: string; V
 
 ; --- 4. CAPABILITIES (Voor Windows Standaard Apps lijst) ---
 Root: HKA; Subkey: "Software\NVict Service\NVict Reader\Capabilities"; ValueType: string; ValueName: "ApplicationName"; ValueData: "NVict Reader"
-Root: HKA; Subkey: "Software\NVict Service\NVict Reader\Capabilities"; ValueType: string; ValueName: "ApplicationDescription"; ValueData: "Bekijk en bewerk PDF bestanden."
+Root: HKA; Subkey: "Software\NVict Service\NVict Reader\Capabilities"; ValueType: string; ValueName: "ApplicationDescription"; ValueData: "{cm:AppDescription}"
 Root: HKA; Subkey: "Software\NVict Service\NVict Reader\Capabilities\FileAssociations"; ValueType: string; ValueName: ".pdf"; ValueData: "NVictReader.PDF"
 Root: HKA; Subkey: "Software\RegisteredApplications"; ValueType: string; ValueName: "NVictReader"; ValueData: "Software\NVict Service\NVict Reader\Capabilities"; Flags: uninsdeletevalue
 
@@ -136,7 +151,7 @@ Root: HKA; Subkey: "Software\Classes\Applications\{#MyAppExeName}\DefaultIcon"; 
 Root: HKA; Subkey: "Software\Classes\Applications\{#MyAppExeName}\shell\open\command"; ValueType: string; ValueData: """{app}\{#MyAppExeName}"" ""%1"""; Flags: uninsdeletekey
 
 ; --- 6. CONTEXT MENU (Rechtermuisknop optie) ---
-Root: HKA; Subkey: "Software\Classes\SystemFileAssociations\.pdf\shell\NVictReader"; ValueType: string; ValueName: ""; ValueData: "Open met NVict Reader"
+Root: HKA; Subkey: "Software\Classes\SystemFileAssociations\.pdf\shell\NVictReader"; ValueType: string; ValueName: ""; ValueData: "{cm:OpenWithApp}"
 Root: HKA; Subkey: "Software\Classes\SystemFileAssociations\.pdf\shell\NVictReader"; ValueType: string; ValueName: "Icon"; ValueData: "{app}\{#MyAppExeName},0"
 Root: HKA; Subkey: "Software\Classes\SystemFileAssociations\.pdf\shell\NVictReader\command"; ValueType: string; ValueName: ""; ValueData: """{app}\{#MyAppExeName}"" ""%1"""
 

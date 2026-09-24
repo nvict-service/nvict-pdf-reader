@@ -34,6 +34,7 @@ from PySide6.QtWidgets import (
 
 from . import security
 from .platform_win import is_packaged
+from .i18n import tr
 
 APP_VERSION = "3.0"
 UPDATE_CHECK_URL = "https://www.nvict.nl/software/updates/nvict_reader_version.json"
@@ -107,10 +108,10 @@ class _DownloadThread(QThread):
                         os.remove(filepath)
                     except OSError:
                         pass
-                    raise ValueError(
+                    raise ValueError(tr(
                         "De controlesom van het gedownloade bestand klopt niet. "
                         "De download is verwijderd en niet gestart."
-                    )
+                    ))
 
             self.finished_ok.emit(filepath)
         except Exception as exc:
@@ -120,14 +121,15 @@ class _DownloadThread(QThread):
 class _UpdateAvailableDialog(QDialog):
     def __init__(self, parent, new_version, release_notes):
         super().__init__(parent)
-        self.setWindowTitle("Update beschikbaar")
+        self.setWindowTitle(tr("Update beschikbaar"))
         self.setMinimumWidth(420)
 
         layout = QVBoxLayout(self)
-        layout.addWidget(QLabel(
-            f"Er is een nieuwe versie van NVict Reader beschikbaar: <b>{new_version}</b> "
-            f"(u gebruikt nu {APP_VERSION})."
-        ))
+        layout.addWidget(QLabel(tr(
+            "Er is een nieuwe versie van NVict Reader beschikbaar: <b>{new}</b> "
+            "(u gebruikt nu {current}).",
+            new=new_version, current=APP_VERSION,
+        )))
 
         if release_notes:
             notes = QTextEdit(self)
@@ -137,9 +139,9 @@ class _UpdateAvailableDialog(QDialog):
             layout.addWidget(notes)
 
         buttons = QDialogButtonBox(self)
-        self.update_button = QPushButton("Nu bijwerken", self)
+        self.update_button = QPushButton(tr("Nu bijwerken"), self)
         self.update_button.setDefault(True)
-        later_button = QPushButton("Later", self)
+        later_button = QPushButton(tr("Later"), self)
         buttons.addButton(self.update_button, QDialogButtonBox.ButtonRole.AcceptRole)
         buttons.addButton(later_button, QDialogButtonBox.ButtonRole.RejectRole)
         buttons.accepted.connect(self.accept)
@@ -158,9 +160,9 @@ def check_for_updates(parent, silent=False):
     if is_packaged():
         if not silent:
             QMessageBox.information(
-                parent, "Updates",
-                "Deze versie van NVict Reader wordt automatisch bijgewerkt "
-                "via de Microsoft Store.",
+                parent, tr("Updates"),
+                tr("Deze versie van NVict Reader wordt automatisch bijgewerkt "
+                   "via de Microsoft Store."),
             )
         return
     thread = _CheckThread(parent)
@@ -174,23 +176,25 @@ def check_for_updates(parent, silent=False):
         if download_url and not security.is_trusted_update_url(download_url):
             if not silent:
                 QMessageBox.critical(
-                    parent, "Update geweigerd",
-                    "De update-informatie verwijst naar een adres buiten "
-                    "www.nvict.nl en is daarom genegeerd.\n\nDownload de update via de website.",
+                    parent, tr("Update geweigerd"),
+                    tr("De update-informatie verwijst naar een adres buiten "
+                       "www.nvict.nl en is daarom genegeerd.\n\nDownload de update via de website."),
                 )
             return
 
         if _is_newer(latest_version, APP_VERSION):
             _show_update_dialog(parent, latest_version, download_url, release_notes, expected_sha256)
         elif not silent:
-            QMessageBox.information(parent, "Geen updates", f"U gebruikt al de nieuwste versie ({APP_VERSION}).")
+            QMessageBox.information(
+                parent, tr("Geen updates"), tr("U gebruikt al de nieuwste versie ({version}).", version=APP_VERSION)
+            )
 
     def on_fail(_error):
         if not silent:
             QMessageBox.critical(
-                parent, "Verbindingsfout",
-                "Kan niet verbinden met de update-server.\n\n"
-                "Controleer uw internetverbinding en probeer het later opnieuw.",
+                parent, tr("Verbindingsfout"),
+                tr("Kan niet verbinden met de update-server.\n\n"
+                   "Controleer uw internetverbinding en probeer het later opnieuw."),
             )
 
     thread.finished_ok.connect(on_ok)
@@ -210,14 +214,14 @@ def _show_update_dialog(parent, new_version, download_url, release_notes, expect
 def _download_and_install(parent, download_url, version, expected_sha256):
     if not security.is_trusted_update_url(download_url):
         QMessageBox.critical(
-            parent, "Update geweigerd",
-            "De update kan niet worden gedownload omdat het adres niet van "
-            "www.nvict.nl komt.\n\nDownload de update via de website.",
+            parent, tr("Update geweigerd"),
+            tr("De update kan niet worden gedownload omdat het adres niet van "
+               "www.nvict.nl komt.\n\nDownload de update via de website."),
         )
         return
 
-    progress = QProgressDialog("Update downloaden...", "", 0, 0, parent)
-    progress.setWindowTitle("Bijwerken")
+    progress = QProgressDialog(tr("Update downloaden..."), "", 0, 0, parent)
+    progress.setWindowTitle(tr("Bijwerken"))
     progress.setCancelButton(None)
     progress.setMinimumDuration(0)
     progress.show()
@@ -228,7 +232,7 @@ def _download_and_install(parent, download_url, version, expected_sha256):
         if total > 0:
             progress.setMaximum(total)
             progress.setValue(min(received, total))
-        progress.setLabelText(f"Bezig met downloaden... ({received // 1024} KB)")
+        progress.setLabelText(tr("Bezig met downloaden... ({kb} KB)", kb=received // 1024))
 
     def on_ok(filepath):
         progress.close()
@@ -237,9 +241,9 @@ def _download_and_install(parent, download_url, version, expected_sha256):
     def on_fail(error_msg):
         progress.close()
         QMessageBox.critical(
-            parent, "Download mislukt",
-            f"Kan de update niet downloaden:\n{error_msg}\n\n"
-            "Probeer het later opnieuw of download de update handmatig via de website.",
+            parent, tr("Download mislukt"),
+            tr("Kan de update niet downloaden:\n{error}\n\n"
+               "Probeer het later opnieuw of download de update handmatig via de website.", error=error_msg),
         )
 
     thread.progress.connect(on_progress)
@@ -255,12 +259,12 @@ def _finish_update(parent, filepath):
     gebruiker heeft met "Nu bijwerken" al bevestigd, een tweede bevestiging
     hier voegt niets toe."""
     if not os.path.exists(filepath):
-        QMessageBox.critical(parent, "Fout", "Het gedownloade bestand is niet gevonden.")
+        QMessageBox.critical(parent, tr("Fout"), tr("Het gedownloade bestand is niet gevonden."))
         return
     try:
         os.startfile(filepath)
     except OSError as exc:
-        QMessageBox.critical(parent, "Fout", f"Kan de installer niet starten:\n{exc}")
+        QMessageBox.critical(parent, tr("Fout"), tr("Kan de installer niet starten:") + f"\n{exc}")
         return
     # Korte vertraging zodat Windows de installer daadwerkelijk gestart
     # heeft vóór dit programma zichzelf afsluit (parent.close() respecteert

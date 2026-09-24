@@ -8,7 +8,7 @@ from PySide6.QtCore import QTimer, QTranslator
 from PySide6.QtGui import QIcon
 from PySide6.QtWidgets import QApplication
 
-from . import settings, single_instance, theme, update_checker
+from . import i18n, settings, single_instance, theme, update_checker
 from .main_window import MainWindow
 from .resources import get_resource_path
 
@@ -17,7 +17,8 @@ def _install_dutch_translator(app):
     """Vertaal Qt's eigen standaardknoppen (Ja/Nee/Annuleren/...) naar het
     Nederlands. PySide6 levert deze vertaling al kant-en-klaar mee - dit
     dekt QMessageBox/QFileDialog/QColorDialog/QPageSetupDialog e.d. in de
-    hele app, zonder elke aanroep apart aan te moeten passen."""
+    hele app, zonder elke aanroep apart aan te moeten passen. In het Engels
+    is niets nodig: dat is Qt's eigen brontaal."""
     translations_dir = os.path.join(os.path.dirname(__import__("PySide6").__file__), "translations")
     translator = QTranslator(app)
     if translator.load("qtbase_nl", translations_dir):
@@ -52,7 +53,9 @@ def main(argv=None):
     if file_arg and single_instance.try_send_to_running_instance(file_arg):
         return 0
 
-    _translator = _install_dutch_translator(app)  # referentie levend houden
+    i18n.init(settings.get_language())
+    if i18n.current() == i18n.LANGUAGE_DUTCH:
+        _translator = _install_dutch_translator(app)  # referentie levend houden
 
     favicon_path = get_resource_path("favicon.ico")
     if os.path.exists(favicon_path):
