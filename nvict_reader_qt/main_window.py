@@ -28,6 +28,7 @@ from PySide6.QtWidgets import (
 
 from . import document_tools, email_sender, i18n, print_backend, save_pdf, settings, theme, update_checker
 from .about_dialog import AboutDialog
+from .document import get_fitz
 from .document_tools_dialogs import ExportPagesDialog, MergePdfsDialog, RotatePagesDialog
 from .fullscreen_view import FullscreenWindow
 from .i18n import tr
@@ -731,14 +732,35 @@ class MainWindow(QMainWindow):
             progress.setValue(done)
             progress.setLabelText(tr("Pagina {done} van {total}", done=done, total=total))
 
+        # Niet-opgeslagen wijzigingen (tekst, highlights, formuliervelden,
+        # handtekeningen) bestaan alleen als overlay in de view - print daarom
+        # een tijdelijke kopie met dezelfde opbouw als 'Opslaan als'.
+        view = tab.view
+        print_doc = view.pdf_document
+        tmp_path = None
         try:
+            if view.has_unsaved_changes():
+                tmp_path = save_pdf.build_modified_pdf(
+                    tab.file_path, view.text_annotations, view.highlight_annotations,
+                    view.pending_rotations, view.form_field_values, view.signature_annotations,
+                )
+                if tmp_path:
+                    print_doc = get_fitz().open(tmp_path)
             completed = print_backend.run_print_job(
-                printer, tab.view.pdf_document, options, on_progress, progress.wasCanceled
+                printer, print_doc, options, on_progress, progress.wasCanceled
             )
         except Exception as exc:
             progress.close()
             QMessageBox.critical(self, tr("Printfout"), tr("Kan niet printen:") + f"\n\n{exc}")
             return
+        finally:
+            if print_doc is not view.pdf_document:
+                print_doc.close()
+            if tmp_path:
+                try:
+                    os.remove(tmp_path)
+                except OSError:
+                    pass
 
         progress.close()
         if not completed:

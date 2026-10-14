@@ -39,7 +39,9 @@ class PrintDialog(QDialog):
         self.total_pages = total_pages
         self.current_page = current_page  # 0-indexed
 
-        self.printer = QPrinter()
+        # HighResolution: zonder deze modus rekent QPrinter met schermresolutie
+        # (96 dpi) en werd elke pagina als wazig beeldje van 96 dpi geprint.
+        self.printer = QPrinter(QPrinter.PrinterMode.HighResolution)
         default_name = print_backend.default_printer_name()
         if default_name:
             self.printer.setPrinterName(default_name)
@@ -55,6 +57,7 @@ class PrintDialog(QDialog):
         self.printer_combo.addItems(names)
         if default_name in names:
             self.printer_combo.setCurrentText(default_name)
+        self.printer_combo.currentTextChanged.connect(self._apply_selected_printer)
         printer_row.addWidget(self.printer_combo)
         settings_btn = QPushButton(tr("Printer instellingen..."), self)
         settings_btn.clicked.connect(self._open_page_setup)
@@ -139,6 +142,14 @@ class PrintDialog(QDialog):
         buttons.rejected.connect(self.reject)
         layout.addWidget(buttons)
 
+    def _apply_selected_printer(self, name=None):
+        """Zet de in de keuzelijst gekozen printer op de QPrinter. Alleen bij
+        een échte wijziging: setPrinterName herlaadt de driverinstellingen en
+        zou anders wat in "Printer instellingen..." gekozen is weggooien."""
+        name = name or self.printer_combo.currentText()
+        if name and self.printer.printerName() != name:
+            self.printer.setPrinterName(name)
+
     def _open_page_setup(self):
         """Toon de échte, printer-specifieke instellingen (papierbron,
         afdrukkwaliteit, hardware-duplex, ...).
@@ -160,7 +171,17 @@ class PrintDialog(QDialog):
             QAbstractPrintDialog.PrintDialogOption.PrintCollateCopies,
         ):
             dialog.setOption(option, False)
+        self._apply_selected_printer()
         dialog.exec()
+        # In de Windows-dialoog kan een andere printer gekozen zijn - de
+        # keuzelijst daarop bijwerken zonder de instellingen te resetten.
+        chosen = self.printer.printerName()
+        if chosen and chosen != self.printer_combo.currentText():
+            self.printer_combo.blockSignals(True)
+            if self.printer_combo.findText(chosen) < 0:
+                self.printer_combo.addItem(chosen)
+            self.printer_combo.setCurrentText(chosen)
+            self.printer_combo.blockSignals(False)
 
     def _on_accept(self):
         pages = self._resolve_pages()
@@ -178,6 +199,7 @@ class PrintDialog(QDialog):
             if reply != QMessageBox.StandardButton.Yes:
                 return
 
+        self._apply_selected_printer()
         self._resolved_pages = pages
         self.accept()
 

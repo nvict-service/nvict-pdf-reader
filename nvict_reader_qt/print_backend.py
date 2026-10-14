@@ -9,13 +9,16 @@ volledig, en QPageSetupDialog vervangt win32print.DocumentProperties).
 
 from dataclasses import dataclass
 
-from PySide6.QtCore import Qt
+from PySide6.QtCore import QRectF, Qt
 from PySide6.QtGui import QImage, QPainter, QTransform
 from PySide6.QtPrintSupport import QPrinter, QPrinterInfo
 
 from .document import get_fitz
 
-MAX_PRINT_ZOOM = 4.0  # zelfde cap als NVict_Reader.py:3773
+# Renderresolutie: 300 dpi is scherp voor tekst en houdt een A4 onder ~30 MB
+# geheugen. Hogere printer-dpi's schaalt de driver zelf op (geen kwaliteitsverlies
+# t.o.v. 300 dpi, want we schalen niet zelf nog eens in Python).
+MAX_PRINT_ZOOM = 300 / 72
 
 
 @dataclass
@@ -94,8 +97,11 @@ def run_print_job(printer: QPrinter, pdf_document, options: PrintOptions, on_pro
     printer_width, printer_height = printer_rect.width(), printer_rect.height()
     dpi_scale = max(printer.logicalDpiX(), printer.logicalDpiY()) / 72
     zoom = min(dpi_scale, MAX_PRINT_ZOOM)
+    # Printerpixels per renderpixel, voor de werkelijke afmeting op 100%.
+    device_per_image_px = dpi_scale / zoom
 
     painter = QPainter(printer)
+    painter.setRenderHint(QPainter.RenderHint.SmoothPixmapTransform)
     try:
         done = 0
         first_page = True
@@ -128,10 +134,10 @@ def run_print_job(printer: QPrinter, pdf_document, options: PrintOptions, on_pro
                         print_height = printer_height
                         print_width = int(printer_height * aspect_ratio)
                 else:
-                    # Afbeelding is al op printresolutie gerenderd, dus dit IS
-                    # de fysieke afmeting op 100% - alleen naar beneden
-                    # afschalen als hij niet past (nooit uitrekken).
-                    print_width, print_height = img_width, img_height
+                    # Fysieke afmeting op 100% - alleen naar beneden afschalen
+                    # als hij niet past (nooit uitrekken).
+                    print_width = img_width * device_per_image_px
+                    print_height = img_height * device_per_image_px
                     if print_width > printer_width or print_height > printer_height:
                         scale = min(printer_width / print_width, printer_height / print_height)
                         print_width = int(print_width * scale)
@@ -139,11 +145,9 @@ def run_print_job(printer: QPrinter, pdf_document, options: PrintOptions, on_pro
 
                 x = (printer_width - print_width) // 2
                 y = (printer_height - print_height) // 2
-                scaled = image.scaled(
-                    int(print_width), int(print_height),
-                    Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation,
-                )
-                painter.drawImage(int(x), int(y), scaled)
+                # Het beeld ongeschaald in een doelrechthoek tekenen: de driver
+                # schaalt het dan zelf, zonder extra resampling-verlies.
+                painter.drawImage(QRectF(x, y, print_width, print_height), image)
 
                 done += 1
                 if on_progress:

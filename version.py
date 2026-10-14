@@ -7,7 +7,7 @@ bestand ongewijzigd blijft.
 """
 
 APP_NAME = "NVict Reader"
-APP_VERSION = "3.0"
+APP_VERSION = "3.1"
 APP_PUBLISHER = "NVict Service"
 APP_URL = "https://www.nvict.nl/software/NVict_Reader/"
 APP_ID = "NVictReader"

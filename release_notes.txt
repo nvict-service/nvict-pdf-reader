@@ -1,3 +1,20 @@
+Versie 3.1 - Printen verbeterd
+
+Scherpere afdrukken
+  Pagina's werden met schermresolutie (96 dpi) naar de printer gestuurd,
+  waardoor tekst wazig op papier kwam. Er wordt nu op printerresolutie
+  geprint (tot 300 dpi).
+
+Gekozen printer wordt gebruikt
+  Een andere printer kiezen in de keuzelijst van het printvenster had geen
+  effect: er werd altijd naar de standaardprinter geprint. De gekozen
+  printer wordt nu gebruikt.
+
+Wijzigingen worden meegeprint zonder eerst op te slaan
+  Ingevulde formuliervelden, toegevoegde tekst, markeringen en
+  handtekeningen worden nu direct meegeprint; eerst opslaan is niet meer
+  nodig.
+
 Versie 3.0 - Volledig vernieuwd
 
 NVict Reader is van de grond af herbouwd op een moderne technische basis
