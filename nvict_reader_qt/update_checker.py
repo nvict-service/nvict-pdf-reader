@@ -36,7 +36,7 @@ from . import security
 from .platform_win import is_packaged
 from .i18n import tr
 
-APP_VERSION = "3.2"
+APP_VERSION = "3.2.1"
 UPDATE_CHECK_URL = "https://www.nvict.nl/software/updates/nvict_reader_version.json"
 
 

@@ -1,3 +1,16 @@
+Versie 3.2.1 - Handtekening bewaren en verplaatsen
+
+Handtekening bewaren
+  Een getekende of gekozen handtekening wordt bewaard (uit te zetten met
+  het vinkje). De volgende keer staat hij onder "Opgeslagen" en kiest u
+  hem met één klik. Ook een al geplaatste handtekening kunt u via de
+  rechtermuisknop bewaren.
+
+Handtekening verplaatsen en van formaat veranderen
+  Sleep een geplaatste handtekening naar een andere plek, en maak hem
+  groter of kleiner met het hoekje rechtsonder of via de rechtermuisknop.
+  Ongedaan maken kan met Ctrl+Z.
+
 Versie 3.2 - Scherper beeld, nieuw startscherm en veel nieuwe functies
 
 Scherpe weergave bij een hogere schermschaal
