@@ -9,7 +9,7 @@ meteen de juiste documentgrootte kennen.
 
 import webbrowser
 
-from PySide6.QtCore import QBuffer, QEvent, QIODevice, Qt, QTimer, Signal
+from PySide6.QtCore import QBuffer, QEvent, QIODevice, QRectF, Qt, QTimer, Signal
 from PySide6.QtGui import QBrush, QColor, QFont, QImage, QPainter, QPen, QPixmap
 from PySide6.QtWidgets import (
     QApplication,
@@ -23,7 +23,7 @@ from PySide6.QtWidgets import (
     QMessageBox,
 )
 
-from . import document_tools, form_overlay, page_pixmap, rendering, save_pdf, security
+from . import document_tools, form_overlay, page_pixmap, rendering, save_pdf, security, signature_store
 from .annotations import HIGHLIGHT_COLOR, HighlightAnnotation, SignatureAnnotation, TextAnnotation
 from .document import NoPages, PasswordRequired, get_fitz
 from .signature_dialog import SignatureDialog
@@ -57,26 +57,122 @@ def _qimage_to_png_bytes(image: QImage) -> bytes:
 
 
 class _SignatureItem(QGraphicsPixmapItem):
-    """Versleepbare handtekening-afbeelding; houdt annotation.pdf_x/pdf_y bij.
+    """Geplaatste handtekening: verslepen, en met de greep rechtsonder
+    groter/kleiner maken (verhouding blijft gelijk).
 
-    `ItemIsMovable` laat Qt het slepen zelf afhandelen (geen custom
-    drag-code nodig); `itemChange` synchroniseert de PDF-coördinaten van de
-    annotatie zodra de gebruiker de afbeelding verplaatst, zodat een
-    her-render (bv. na zoomen) de nieuwe positie gebruikt in plaats van de
-    oorspronkelijke plaatsingslocatie.
+    Houdt annotation.pdf_x/pdf_y/width/height bij, zodat een her-render
+    (zoomen) en "Opslaan als" de nieuwe positie en maat gebruiken. Elke
+    verplaatsing of formaatwijziging is met Ctrl+Z terug te draaien.
     """
+
+    HANDLE = 12        # zijde van de greep, in schermpixels
+    MIN_WIDTH_PT = 30  # kleiner wordt onleesbaar
 
     def __init__(self, pixmap, annotation, view):
         super().__init__(pixmap)
         self.annotation = annotation
         self._view = view
+        self._source = QImage.fromData(annotation.image_bytes)
+        self._press_state = None  # (modus, oude pdf-waarden) tijdens slepen
+        self._hovered = False
         self.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsMovable, True)
         self.setFlag(QGraphicsItem.GraphicsItemFlag.ItemSendsGeometryChanges, True)
+        self.setAcceptHoverEvents(True)
+        self.setCursor(Qt.CursorShape.SizeAllCursor)
         # Getekende handtekeningen hebben een transparante achtergrond tussen
         # de penseelstreken door - zonder dit zou hit-testing (klikken om te
         # verslepen/verwijderen) alleen op de inkt zelf reageren, niet op de
         # hele omkaderde afbeelding zoals de gebruiker die ziet.
         self.setShapeMode(QGraphicsPixmapItem.ShapeMode.BoundingRectShape)
+
+    def _handle_rect(self):
+        rect = self.boundingRect()
+        return QRectF(rect.right() - self.HANDLE, rect.bottom() - self.HANDLE, self.HANDLE, self.HANDLE)
+
+    def paint(self, painter, option, widget=None):
+        super().paint(painter, option, widget)
+        if self._hovered or self._press_state is not None:
+            pen = QPen(QColor(16, 162, 221), 1, Qt.PenStyle.DashLine)
+            painter.setPen(pen)
+            painter.setBrush(Qt.BrushStyle.NoBrush)
+            painter.drawRect(self.boundingRect().adjusted(0, 0, -1, -1))
+            painter.setPen(QPen(QColor(16, 162, 221), 1))
+            painter.setBrush(QBrush(QColor(255, 255, 255)))
+            painter.drawRect(self._handle_rect().adjusted(0, 0, -1, -1))
+
+    def hoverEnterEvent(self, event):
+        self._hovered = True
+        self.update()
+        super().hoverEnterEvent(event)
+
+    def hoverMoveEvent(self, event):
+        on_handle = self._handle_rect().contains(event.pos())
+        self.setCursor(Qt.CursorShape.SizeFDiagCursor if on_handle else Qt.CursorShape.SizeAllCursor)
+        super().hoverMoveEvent(event)
+
+    def hoverLeaveEvent(self, event):
+        self._hovered = False
+        self.update()
+        super().hoverLeaveEvent(event)
+
+    def _snapshot(self):
+        a = self.annotation
+        return (a.pdf_x, a.pdf_y, a.width, a.height)
+
+    def mousePressEvent(self, event):
+        if event.button() == Qt.MouseButton.LeftButton and self._handle_rect().contains(event.pos()):
+            self._press_state = ("resize", self._snapshot())
+            event.accept()
+            return
+        self._press_state = ("move", self._snapshot())
+        super().mousePressEvent(event)
+
+    def mouseMoveEvent(self, event):
+        if self._press_state is not None and self._press_state[0] == "resize":
+            zoom = self._view.zoom_level or 1.0
+            new_width_px = max(self.MIN_WIDTH_PT * zoom, event.pos().x())
+            self.set_size_pt(new_width_px / zoom)
+            event.accept()
+            return
+        super().mouseMoveEvent(event)
+
+    def mouseReleaseEvent(self, event):
+        state, self._press_state = self._press_state, None
+        if state is None or state[0] != "resize":
+            super().mouseReleaseEvent(event)
+        if state is not None and self._snapshot() != state[1]:
+            description = "handtekening verplaatsen" if state[0] == "move" else "handtekening vergroten/verkleinen"
+            self._view.set_undo(
+                description, lambda ann=self.annotation, old=state[1]: self._view._restore_signature(ann, old)
+            )
+            self._view.stateChanged.emit()
+        self.update()
+
+    def set_size_pt(self, width_pt):
+        """Nieuwe breedte in PDF-punten; hoogte volgt de verhouding."""
+        a = self.annotation
+        aspect = a.height / a.width if a.width else 1.0
+        a.width = max(self.MIN_WIDTH_PT, width_pt)
+        a.height = a.width * aspect
+        self._rescale()
+
+    def restore(self, values):
+        a = self.annotation
+        a.pdf_x, a.pdf_y, a.width, a.height = values
+        self._rescale()
+        entry = self._view._layout_by_page.get(a.page_num)
+        if entry is not None:
+            zoom = self._view.zoom_level
+            self.setPos(entry.x + a.pdf_x * zoom, entry.y + a.pdf_y * zoom)
+        self._view.stateChanged.emit()
+
+    def _rescale(self):
+        zoom = self._view.zoom_level or 1.0
+        self.prepareGeometryChange()
+        self.setPixmap(QPixmap.fromImage(self._source).scaled(
+            max(1, round(self.annotation.width * zoom)), max(1, round(self.annotation.height * zoom)),
+            Qt.AspectRatioMode.IgnoreAspectRatio, Qt.TransformationMode.SmoothTransformation,
+        ))
 
     def itemChange(self, change, value):
         if change == QGraphicsItem.GraphicsItemChange.ItemPositionHasChanged:
@@ -1142,9 +1238,21 @@ class PdfGraphicsView(QGraphicsView):
         if signature_hit is not None:
             annotation, item = signature_hit
             menu = QMenu(self)
+            bigger_action = menu.addAction(tr("Groter"))
+            smaller_action = menu.addAction(tr("Kleiner"))
+            menu.addSeparator()
+            save_action = menu.addAction(tr("Bewaren voor de volgende keer"))
+            menu.addSeparator()
             remove_action = menu.addAction(tr("Handtekening verwijderen"))
             chosen = menu.exec(self.viewport().mapToGlobal(self.mapFromScene(scene_pos)))
-            if chosen == remove_action:
+            if chosen in (bigger_action, smaller_action):
+                old = item._snapshot()
+                item.set_size_pt(annotation.width * (1.25 if chosen == bigger_action else 0.8))
+                self.set_undo("handtekening vergroten/verkleinen", lambda ann=annotation, o=old: self._restore_signature(ann, o))
+                self.stateChanged.emit()
+            elif chosen == save_action:
+                signature_store.save(QImage.fromData(annotation.image_bytes))
+            elif chosen == remove_action:
                 self._remove_signature(annotation, item)
 
     # ── Hyperlinks (fase 6) ──────────────────────────────────────────────
@@ -1398,6 +1506,16 @@ class PdfGraphicsView(QGraphicsView):
         self.scene().addItem(item)
         self._signature_overlay_items.append(item)
 
+    def _restore_signature(self, annotation, values):
+        """Undo van verplaatsen/schalen: het item kan sinds die actie opnieuw
+        aangemaakt zijn (zoomen), dus via de annotatie het huidige zoeken."""
+        for item in self._signature_overlay_items:
+            if item.annotation is annotation:
+                item.restore(values)
+                return
+        annotation.pdf_x, annotation.pdf_y, annotation.width, annotation.height = values
+        self.stateChanged.emit()
+
     def _signature_at(self, scene_pos):
         for item in self._signature_overlay_items:
             if item.contains(item.mapFromScene(scene_pos)):
@@ -1507,6 +1625,9 @@ class PdfGraphicsView(QGraphicsView):
                     super().mousePressEvent(event)
                     return
                 self._handle_signature_click(scene_pos)
+                return
+            if self.tool_mode is None and isinstance(self.itemAt(event.position().toPoint()), _SignatureItem):
+                super().mousePressEvent(event)  # handtekening verslepen/schalen
                 return
             if self.tool_mode is None:
                 # Normale modus: eerst linkklik checken (stopt daar, net als

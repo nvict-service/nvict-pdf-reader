@@ -509,4 +509,10 @@ EN = {
     "Deze PDF is al zo compact mogelijk; er is geen kleiner bestand gemaakt.":
         "This PDF is already as compact as possible; no smaller file was created.",
     "Kan de PDF niet verkleinen:": "Cannot reduce the PDF:",
+    # ── Handtekening bewaren/verplaatsen ──
+    "Groter": "Larger",
+    "Kleiner": "Smaller",
+    "Bewaren voor de volgende keer": "Save for next time",
+    "Geselecteerde verwijderen": "Delete selected",
+    "Handtekening bewaren voor de volgende keer": "Save signature for next time",
 }
