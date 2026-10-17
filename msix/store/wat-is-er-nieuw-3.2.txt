@@ -1,0 +1,30 @@
+Wat is er nieuw (NL) - plakken in Partner Center > Store-vermeldingen > Wat is er nieuw in deze versie
+------------------------------------------------------------------------
+Versie 3.2
+• Scherp beeld bij een Windows-schaal van 125% of meer
+• Nieuw startscherm met miniaturen van recente bestanden
+• Inhoudsopgave, zoekbalk met vorige/volgende en leesmodus (donkere pagina's)
+• Verder lezen waar u gebleven was; zoomen met Ctrl + scrollwiel; bestanden slepen om te openen
+• Pagina's verwijderen, verplaatsen en een PDF invoegen
+• PDF verkleinen voor e-mailbijlagen
+• PDF beveiligen met een wachtwoord, of beveiliging verwijderen
+• PDF's met wachtwoord openen weer; beperkingen van de maker worden gerespecteerd
+• Handmatig dubbelzijdig printen bij printers die het niet zelf kunnen
+• Help > Fout melden
+• Nieuwe, scherpe iconen
+
+
+What's new (EN) - for the English listing
+------------------------------------------------------------------------
+Version 3.2
+• Sharp display at Windows scaling of 125% or higher
+• New start screen with thumbnails of recent files
+• Table of contents, search bar with previous/next, and reading mode (dark pages)
+• Continue where you left off; zoom with Ctrl + mouse wheel; drag files onto the window to open them
+• Delete, move and insert pages
+• Reduce PDF size for e-mail attachments
+• Protect a PDF with a password, or remove protection
+• Password-protected PDFs open again; restrictions set by the author are respected
+• Manual double-sided printing for printers that cannot do it themselves
+• Help > Report a problem
+• New, sharp icons
