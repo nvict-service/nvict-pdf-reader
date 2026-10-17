@@ -9,7 +9,7 @@ meteen de juiste documentgrootte kennen.
 
 import webbrowser
 
-from PySide6.QtCore import QBuffer, QIODevice, Qt, QTimer, Signal
+from PySide6.QtCore import QBuffer, QEvent, QIODevice, Qt, QTimer, Signal
 from PySide6.QtGui import QBrush, QColor, QFont, QImage, QPainter, QPen, QPixmap
 from PySide6.QtWidgets import (
     QApplication,
@@ -23,9 +23,9 @@ from PySide6.QtWidgets import (
     QMessageBox,
 )
 
-from . import form_overlay, rendering, security
+from . import document_tools, form_overlay, page_pixmap, rendering, save_pdf, security
 from .annotations import HIGHLIGHT_COLOR, HighlightAnnotation, SignatureAnnotation, TextAnnotation
-from .document import get_fitz
+from .document import NoPages, PasswordRequired, get_fitz
 from .signature_dialog import SignatureDialog
 from .text_annotation_dialog import TextAnnotationDialog
 from .i18n import tr
@@ -40,6 +40,7 @@ FORM_WIDGETS_CACHE_PAGES = 20
 LINKS_CACHE_PAGES = 20
 SEARCH_HIGHLIGHT_PEN = QPen(QColor(255, 140, 0, 255))  # oranje, zoals NVict_Reader.py:2990
 SEARCH_HIGHLIGHT_PEN.setWidth(3)
+SEARCH_CURRENT_BRUSH = QBrush(QColor(255, 140, 0, 90))
 
 _FONT_FAMILY_BY_CODE = {"helv": "Arial", "tiro": "Times New Roman", "cour": "Courier New"}
 
@@ -118,6 +119,7 @@ class PdfGraphicsView(QGraphicsView):
     pageChanged = Signal(int)
     stateChanged = Signal()      # fase 10: emit bij elke wijziging die has_unsaved_changes() kan beïnvloeden
     undoAvailable = Signal(bool)  # fase 10: single-step undo
+    structureChanged = Signal()   # pagina's verwijderd/verplaatst/ingevoegd: panelen herbouwen
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -130,6 +132,10 @@ class PdfGraphicsView(QGraphicsView):
         # Nodig zodat mouseMoveEvent ook zonder ingedrukte knop binnenkomt,
         # voor de link-hovercursor (fase 6).
         self.setMouseTracking(True)
+        # Bestanden die op het document gesleept worden laat het hoofdvenster
+        # openen; QGraphicsView zou ze anders zelf "accepteren" en negeren.
+        self.setAcceptDrops(False)
+        self.viewport().setAcceptDrops(False)
 
         self.pdf_document = None
         self.file_path = None
@@ -138,6 +144,10 @@ class PdfGraphicsView(QGraphicsView):
         self.current_page = 0
         self.book_mode = False
         self.security_info = ""
+        self.password = None  # nodig om het bestand voor opslaan/printen opnieuw te openen
+        self.owner_password = None
+        self.is_protected = False
+        self.owner_unlocked = True
 
         self.page_layout = []
         self._layout_by_page = {}
@@ -165,6 +175,7 @@ class PdfGraphicsView(QGraphicsView):
 
         # ── Bewerken-menu-state (fase 3) ──
         self.pending_rotations = {}  # page_num -> graden, nog niet naar schijf geschreven
+        self.page_ops = []  # paginabewerkingen (zie document_tools.apply_page_op), in volgorde
         self._original_page_rotations = {}  # page_num -> rotatie vóór de eerste wijziging deze sessie
 
         # ── Formuliervelden (fase 4) ──
@@ -187,6 +198,8 @@ class PdfGraphicsView(QGraphicsView):
 
         # ── Zoeken (fase 10) ──
         self._search_overlay_items = []  # list[QGraphicsRectItem], oranje omkadering rond treffers
+        self.search_hits = []            # list[(page_num, fitz.Rect)] voor de zoekbalk
+        self._search_index = -1
 
         # ── Undo (fase 10, single-step) ──
         self._undo_action = None  # (beschrijving, callback) of None
@@ -212,10 +225,24 @@ class PdfGraphicsView(QGraphicsView):
         callback()
 
     def has_unsaved_changes(self):
+        return bool(self.page_ops) or self.has_other_changes()
+
+    def has_other_changes(self):
+        """Alle niet-opgeslagen wijzigingen behalve paginabewerkingen."""
         return (
             bool(self.text_annotations) or bool(self.highlight_annotations)
             or bool(self.pending_rotations) or bool(self.form_field_values)
             or bool(self.signature_annotations)
+        )
+
+    def build_modified_copy(self):
+        """Tijdelijke PDF met alle niet-opgeslagen wijzigingen (of None).
+        Eén plek, zodat opslaan/printen/mailen/beveiligen allemaal precies
+        hetzelfde resultaat krijgen."""
+        return save_pdf.build_modified_pdf(
+            self.file_path, self.text_annotations, self.highlight_annotations,
+            self.pending_rotations, self.form_field_values, self.signature_annotations,
+            password=self.source_password, page_ops=self.page_ops,
         )
 
     def clear_saved_changes(self):
@@ -239,6 +266,7 @@ class PdfGraphicsView(QGraphicsView):
         self.highlight_annotations = []
         self.pending_rotations = {}
         self._original_page_rotations = {}
+        self.page_ops = []
         self.form_field_values = {}
         self.signature_annotations = []
         self._refresh_field_highlights()
@@ -246,6 +274,80 @@ class PdfGraphicsView(QGraphicsView):
         # als het al (elders) is vastgelegd - undo-slot dus ook wissen.
         self._undo_action = None
         self.undoAvailable.emit(False)
+        self.stateChanged.emit()
+
+    # ── Paginabewerkingen: verwijderen, verplaatsen, invoegen ─────────
+    # Werken direct op het levende document én worden bijgehouden in
+    # page_ops, zodat "Opslaan als" ze op het verse bestand herhaalt. Ze
+    # mogen alleen als er geen andere niet-opgeslagen wijzigingen zijn
+    # (MainWindow controleert dat): die zijn gekoppeld aan paginanummers
+    # die door de bewerking zouden verschuiven.
+
+    def delete_pages(self, page_nums):
+        doc = self.pdf_document
+        page_nums = sorted(set(page_nums))
+        # Kopie van de pagina's bewaren voor ongedaan maken.
+        backup = get_fitz().open()
+        for page_num in page_nums:
+            backup.insert_pdf(doc, from_page=page_num, to_page=page_num)
+        op = ("delete", page_nums)
+        document_tools.apply_page_op(doc, op)
+        self.page_ops.append(op)
+
+        def undo(pages=page_nums, saved=backup):
+            for index, page_num in enumerate(pages):
+                self.pdf_document.insert_pdf(saved, from_page=index, to_page=index, start_at=page_num)
+            saved.close()
+            self.page_ops.pop()
+            self._after_structure_change(pages[0])
+
+        self.set_undo("pagina's verwijderen", undo)
+        self._after_structure_change(min(page_nums[0], len(doc) - 1))
+
+    def move_page(self, source, target):
+        if source == target:
+            return
+        op = ("move", source, target)
+        document_tools.apply_page_op(self.pdf_document, op)
+        self.page_ops.append(op)
+
+        def undo(src=source, dst=target):
+            document_tools.move_page_to(self.pdf_document, dst, src)
+            self.page_ops.pop()
+            self._after_structure_change(src)
+
+        self.set_undo("pagina verplaatsen", undo)
+        self._after_structure_change(target)
+
+    def insert_pdf(self, path, password, at):
+        op = ("insert", path, password, at)
+        count = document_tools.apply_page_op(self.pdf_document, op)
+        self.page_ops.append(op)
+
+        def undo(start=at, n=count):
+            self.pdf_document.delete_pages(list(range(start, start + n)))
+            self.page_ops.pop()
+            self._after_structure_change(max(0, start - 1))
+
+        self.set_undo("pagina's invoegen", undo)
+        self._after_structure_change(at)
+        return count
+
+    def _after_structure_change(self, show_page):
+        """Alles wat per paginanummer gecachet is, klopt niet meer."""
+        self._pixmap_cache = {}
+        self._word_cache = {}
+        self._widgets_cache = {}
+        self._links_cache = {}
+        self._original_page_rotations = {}
+        self.clear_search()
+        self.current_page = max(0, min(show_page, len(self.pdf_document) - 1))
+        if self.zoom_mode == "fit_width":
+            self._recompute_fit_width_zoom()
+        self.rebuild_layout(force_render=False)
+        self.go_to_page(self.current_page)
+        self.pageChanged.emit(self.current_page)
+        self.structureChanged.emit()
         self.stateChanged.emit()
 
     def rotate_pages(self, page_nums, degrees, _record_undo=True):
@@ -303,16 +405,60 @@ class PdfGraphicsView(QGraphicsView):
         self.close_document()
         fitz = get_fitz()
         document = fitz.open(file_path)
-        if password and document.needs_pass:
-            document.authenticate(password)
+        # Zonder deze controle opende een PDF met openingswachtwoord nooit:
+        # het eerste paginabezoek gaf "document closed or encrypted".
+        auth = 0
+        if document.needs_pass:
+            auth = document.authenticate(password) if password else 0
+            if not auth:
+                document.close()
+                raise PasswordRequired(wrong=bool(password))
+        if len(document) == 0:
+            document.close()
+            raise NoPages()
 
         self.pdf_document = document
         self.file_path = file_path
+        self.password = password
+        # Beveiligd = versleuteld (met of zonder openingswachtwoord). Eigenaars-
+        # rechten heeft de gebruiker als het ingevoerde wachtwoord het
+        # eigenaarswachtwoord was (bit 4) - of als het document niet beveiligd is.
+        self.is_protected = bool(document.metadata.get("encryption")) or document.is_encrypted
+        self.owner_unlocked = (not self.is_protected) or bool(auth & 4)
+        self.owner_password = password if auth & 4 else None
         self.current_page = 0
         self.zoom_mode = "fit_width"
         self.security_info = self._compute_security_info()
         self._recompute_fit_width_zoom()
         self.rebuild_layout()
+
+    # ── Beveiliging: beperkingen van de maker respecteren ─────────────
+
+    def permission_allowed(self, flag) -> bool:
+        """Mag dit (PDF_PERM_*-vlag) zonder eigenaarswachtwoord? Voor een
+        onbeveiligd document of na ontgrendelen altijd."""
+        if self.owner_unlocked or not self.pdf_document:
+            return True
+        return bool(self.pdf_document.permissions & flag)
+
+    def unlock_owner(self, password) -> bool:
+        """Probeer het eigenaarswachtwoord; bij succes zijn alle bewerkingen
+        toegestaan (en mag een kopie zonder beveiliging opgeslagen worden)."""
+        if self.pdf_document is None or not password:
+            return False
+        if not self.pdf_document.authenticate(password) & 4:
+            return False
+        self.owner_unlocked = True
+        self.owner_password = password
+        self.security_info = self._compute_security_info()
+        self.stateChanged.emit()
+        return True
+
+    @property
+    def source_password(self):
+        """Wachtwoord om het bestand opnieuw van schijf te openen met de
+        rechten die de gebruiker nu heeft."""
+        return self.owner_password or self.password
 
     def _detect_signatures(self) -> bool:
         try:
@@ -330,10 +476,11 @@ class PdfGraphicsView(QGraphicsView):
         kopiëren/annotaties) en digitale ondertekening van het document."""
         info = []
         try:
-            if self.pdf_document.is_encrypted:
+            # Na authenticate() is is_encrypted False; het wachtwoord weten we nog.
+            if self.pdf_document.is_encrypted or self.password:
                 info.append("🔒 " + tr("Beveiligd (wachtwoord)"))
 
-            perms = self.pdf_document.permissions
+            perms = -1 if self.owner_unlocked else self.pdf_document.permissions
             restrictions = []
             if not (perms & 4):
                 restrictions.append(tr("afdrukken"))
@@ -345,6 +492,8 @@ class PdfGraphicsView(QGraphicsView):
                 restrictions.append(tr("annotaties"))
             if restrictions:
                 info.append("🔐 " + tr("Beperkt ({items})", items=", ".join(restrictions)))
+            elif self.is_protected and self.owner_password:
+                info.append("🔓 " + tr("Bewerken ontgrendeld"))
 
             if self._detect_signatures():
                 info.append("🔏 " + tr("Digitaal ondertekend"))
@@ -438,6 +587,9 @@ class PdfGraphicsView(QGraphicsView):
         if self.form_mode:
             self._build_form_overlays()
 
+        # Na zoomen/draaien de zoekkaders op de nieuwe posities terugzetten.
+        self._draw_search_overlay()
+
         if force_render:
             self.render_visible_pages(force=True)
 
@@ -469,7 +621,7 @@ class PdfGraphicsView(QGraphicsView):
             if page_num in self._pixmap_items:
                 continue
             pixmap = self._pixmap_cache.get(page_num)
-            if pixmap is None:
+            if pixmap is None or pixmap.devicePixelRatio() != self.devicePixelRatioF():
                 pixmap = self._render_page_pixmap(page_num)
                 self._pixmap_cache[page_num] = pixmap
 
@@ -508,13 +660,8 @@ class PdfGraphicsView(QGraphicsView):
         self._placeholder_items[page_num] = placeholder
 
     def _render_page_pixmap(self, page_num) -> QPixmap:
-        fitz = get_fitz()
         page = self.pdf_document[page_num]
-        mat = fitz.Matrix(self.zoom_level, self.zoom_level)
-        pix = page.get_pixmap(matrix=mat)
-        fmt = QImage.Format.Format_RGBA8888 if pix.alpha else QImage.Format.Format_RGB888
-        image = QImage(pix.samples, pix.width, pix.height, pix.stride, fmt)
-        return QPixmap.fromImage(image.copy())
+        return page_pixmap.render_page(page, self.zoom_level, self.devicePixelRatioF())
 
     # ── Zoom & navigatie ─────────────────────────────────────────────
 
@@ -617,44 +764,75 @@ class PdfGraphicsView(QGraphicsView):
             self.scene().removeItem(item)
         self._search_overlay_items = []
 
-    def search(self, term) -> bool:
-        """Zoek `term` cyclisch vanaf de huidige pagina; geeft True bij een
-        treffer. Poort van NVict_Reader.py:2948-3023 (search_in_pdf) - stopt
-        bij de eerste pagina met een treffer en markeert daar alle
-        treffers met een oranje omkadering."""
+    def search_all(self, term):
+        """Zoek alle treffers van `term` in het hele document. De eerste
+        next_search_hit(+1) springt naar de eerste treffer vanaf de huidige
+        pagina, zodat zoeken niet steeds bij pagina 1 begint."""
         self._clear_search_overlay()
+        self.search_hits = []
+        self._search_index = -1
         if not self.pdf_document or not term:
-            return False
+            return
+        for page_num in range(len(self.pdf_document)):
+            for rect in self.pdf_document[page_num].search_for(term):
+                self.search_hits.append((page_num, rect))
+        # Startpunt: net vóór de eerste treffer op of na de huidige pagina.
+        for index, (page_num, _rect) in enumerate(self.search_hits):
+            if page_num >= self.current_page:
+                self._search_index = index - 1
+                break
 
-        page_count = len(self.pdf_document)
-        for offset in range(page_count):
-            page_num = (self.current_page + offset) % page_count
-            instances = self.pdf_document[page_num].search_for(term)
-            if not instances:
+    def next_search_hit(self, step) -> int:
+        """Ga naar de volgende (+1) of vorige (-1) treffer, rondlopend.
+        Geeft de index van de getoonde treffer terug (-1 = geen treffers)."""
+        if not self.search_hits:
+            self._clear_search_overlay()
+            return -1
+        self._search_index = (self._search_index + step) % len(self.search_hits)
+        page_num, rect = self.search_hits[self._search_index]
+        if page_num != self.current_page:
+            self.go_to_page(page_num)
+        entry = self._layout_by_page.get(page_num)
+        if entry is not None:
+            # Treffer in beeld brengen (ook als hij onderaan een pagina staat).
+            self.ensureVisible(
+                entry.x + rect.x0 * self.zoom_level, entry.y + rect.y0 * self.zoom_level,
+                (rect.x1 - rect.x0) * self.zoom_level, (rect.y1 - rect.y0) * self.zoom_level,
+                60, 120,
+            )
+        self._draw_search_overlay()
+        return self._search_index
+
+    def clear_search(self):
+        self.search_hits = []
+        self._search_index = -1
+        self._clear_search_overlay()
+
+    def _draw_search_overlay(self):
+        """Oranje kaders om alle treffers op de pagina van de huidige
+        treffer; de huidige treffer zelf ook gevuld."""
+        self._clear_search_overlay()
+        if not (0 <= self._search_index < len(self.search_hits)):
+            return
+        current_page, _ = self.search_hits[self._search_index]
+        entry = self._layout_by_page.get(current_page)
+        if entry is None:
+            return
+        for index, (page_num, rect) in enumerate(self.search_hits):
+            if page_num != current_page:
                 continue
-
-            if page_num != self.current_page:
-                self.go_to_page(page_num)
+            x0 = entry.x + rect.x0 * self.zoom_level
+            y0 = entry.y + rect.y0 * self.zoom_level
+            item = QGraphicsRectItem(0, 0, (rect.x1 - rect.x0) * self.zoom_level, (rect.y1 - rect.y0) * self.zoom_level)
+            item.setPos(x0, y0)
+            item.setPen(SEARCH_HIGHLIGHT_PEN)
+            if index == self._search_index:
+                item.setBrush(SEARCH_CURRENT_BRUSH)
             else:
-                self.render_visible_pages(force=True)
-
-            entry = self._layout_by_page.get(page_num)
-            if entry is not None:
-                for rect in instances:
-                    x0 = entry.x + rect.x0 * self.zoom_level
-                    y0 = entry.y + rect.y0 * self.zoom_level
-                    x1 = entry.x + rect.x1 * self.zoom_level
-                    y1 = entry.y + rect.y1 * self.zoom_level
-                    item = QGraphicsRectItem(0, 0, x1 - x0, y1 - y0)
-                    item.setPos(x0, y0)
-                    item.setPen(SEARCH_HIGHLIGHT_PEN)
-                    item.setBrush(QBrush(Qt.BrushStyle.NoBrush))
-                    item.setZValue(3)
-                    self.scene().addItem(item)
-                    self._search_overlay_items.append(item)
-            return True
-
-        return False
+                item.setBrush(QBrush(Qt.BrushStyle.NoBrush))
+            item.setZValue(3)
+            self.scene().addItem(item)
+            self._search_overlay_items.append(item)
 
     # ── Annotaties: tekst & markeren (fase 2) ──────────────────────────
 
@@ -886,6 +1064,9 @@ class PdfGraphicsView(QGraphicsView):
         if item is not None:
             self.scene().removeItem(item)
             self._restore_placeholder(page_num)
+            # Het her-renderen voegt de veld-markeringen opnieuw toe; de oude
+            # moeten dus weg, anders liggen ze dubbel over elkaar.
+            self._remove_field_highlights(page_num)
 
     def _apply_highlight(self, page_num, quads, record_undo=True):
         page = self.pdf_document[page_num]
@@ -1278,6 +1459,18 @@ class PdfGraphicsView(QGraphicsView):
 
     # ── Qt events ────────────────────────────────────────────────────
 
+    def wheelEvent(self, event):
+        # Ctrl + scrollwiel = zoomen, zoals in vrijwel elk ander programma.
+        if event.modifiers() & Qt.KeyboardModifier.ControlModifier and self.pdf_document:
+            delta = event.angleDelta().y()
+            if delta > 0:
+                self.zoom_in()
+            elif delta < 0:
+                self.zoom_out()
+            event.accept()
+            return
+        super().wheelEvent(event)
+
     def mousePressEvent(self, event):
         if not self.pdf_document:
             super().mousePressEvent(event)
@@ -1360,6 +1553,18 @@ class PdfGraphicsView(QGraphicsView):
                 self._handle_text_select_release(scene_pos)
             return
         super().mouseReleaseEvent(event)
+
+    def event(self, event):
+        # Venster naar een scherm met een andere schaal gesleept (of de
+        # Windows-schaal gewijzigd): opnieuw renderen, anders blijven de al
+        # getekende pagina's op de oude resolutie staan.
+        if event.type() == QEvent.Type.DevicePixelRatioChange:
+            for page_num in list(self._pixmap_items.keys()):
+                self._invalidate_page_render(page_num)
+            self._pixmap_cache = {}
+            self._rendered_pages = None
+            self._schedule_render()
+        return super().event(event)
 
     def resizeEvent(self, event):
         super().resizeEvent(event)

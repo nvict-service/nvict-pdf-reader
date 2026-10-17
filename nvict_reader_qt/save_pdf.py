@@ -12,28 +12,38 @@ import tempfile
 
 from PySide6.QtWidgets import QFileDialog, QMessageBox
 
-from . import form_overlay
+from . import document_tools, form_overlay
 from .annotations import hex_to_fitz_rgb
 from .document import get_fitz
 from .i18n import tr
 
 
 def build_modified_pdf(file_path, text_annotations, highlight_annotations, pending_rotations=None,
-                        form_field_values=None, signature_annotations=None):
+                        form_field_values=None, signature_annotations=None, password=None, page_ops=None):
     """Open het originele bestand vers vanaf schijf en voeg wijzigingen toe.
+
+    Paginabewerkingen (verwijderen/verplaatsen/invoegen) gaan eerst: alle
+    andere wijzigingen zijn ná die bewerkingen gemaakt en gebruiken dus de
+    nieuwe paginanummering (zie PdfGraphicsView.page_ops).
 
     Geeft het pad naar een tempfile terug, of None als er niets te doen was.
     """
     pending_rotations = pending_rotations or {}
     form_field_values = form_field_values or {}
     signature_annotations = signature_annotations or []
+    page_ops = page_ops or []
     if not (text_annotations or highlight_annotations or pending_rotations
-            or form_field_values or signature_annotations):
+            or form_field_values or signature_annotations or page_ops):
         return None
 
     fitz = get_fitz()
     doc = fitz.open(file_path)
+    if doc.needs_pass:
+        doc.authenticate(password or "")
     try:
+        for op in page_ops:
+            document_tools.apply_page_op(doc, op)
+
         for page_num, degrees in pending_rotations.items():
             doc[page_num].set_rotation(degrees)
 
@@ -94,7 +104,9 @@ def build_modified_pdf(file_path, text_annotations, highlight_annotations, pendi
         tmp = tempfile.NamedTemporaryFile(suffix=".pdf", prefix=f"{base_name}_bewerkt_", delete=False)
         tmp_path = tmp.name
         tmp.close()
-        doc.save(tmp_path)
+        # Bewust zonder beveiliging: wie dit kan opslaan heeft het openings-
+        # en (bij beperkingen) het eigenaarswachtwoord al ingevoerd.
+        doc.save(tmp_path, encryption=fitz.PDF_ENCRYPT_NONE)
         return tmp_path
     finally:
         doc.close()
@@ -113,10 +125,7 @@ def save_as(parent, tab) -> bool:
         return False
 
     try:
-        tmp_path = build_modified_pdf(
-            tab.file_path, view.text_annotations, view.highlight_annotations,
-            view.pending_rotations, view.form_field_values, view.signature_annotations,
-        )
+        tmp_path = view.build_modified_copy()
         if tmp_path is None:
             return False
         shutil.move(tmp_path, target_path)

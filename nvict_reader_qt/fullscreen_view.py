@@ -9,10 +9,9 @@ de hoofd-tab gesynchroniseerd naar de laatst bekeken pagina.
 """
 
 from PySide6.QtCore import Qt, QTimer
-from PySide6.QtGui import QImage, QPixmap
 from PySide6.QtWidgets import QLabel, QVBoxLayout, QWidget
 
-from .document import get_fitz
+from . import page_pixmap
 from .i18n import tr
 
 HINT_HIDE_DELAY_MS = 4000
@@ -68,15 +67,11 @@ class FullscreenWindow(QWidget):
         if screen_w < 10 or screen_h < 10:
             return
 
-        fitz = get_fitz()
         page = self.pdf_document[self.page_num]
         bound = page.bound()
         zoom = min(screen_w / bound.width, screen_h / bound.height) if bound.width and bound.height else 1.0
 
-        pix = page.get_pixmap(matrix=fitz.Matrix(zoom, zoom))
-        fmt = QImage.Format.Format_RGBA8888 if pix.alpha else QImage.Format.Format_RGB888
-        image = QImage(pix.samples, pix.width, pix.height, pix.stride, fmt)
-        self.page_label.setPixmap(QPixmap.fromImage(image.copy()))
+        self.page_label.setPixmap(page_pixmap.render_page(page, zoom, self.devicePixelRatioF()))
 
         total = len(self.pdf_document)
         self.info_label.setText(tr("Pagina {page} / {total}  ·  Escape om te sluiten", page=self.page_num + 1, total=total))

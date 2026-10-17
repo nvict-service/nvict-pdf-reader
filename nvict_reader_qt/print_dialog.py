@@ -7,7 +7,7 @@ modaal venster nodig maken. Deze dialoog bevat daarom alle opties in één
 scherm, zoals de tkinter-versie (regel 3120-3529), maar met Qt-widgets.
 """
 
-from PySide6.QtPrintSupport import QAbstractPrintDialog, QPrintDialog, QPrinter
+from PySide6.QtPrintSupport import QAbstractPrintDialog, QPrintDialog, QPrinter, QPrinterInfo
 from PySide6.QtWidgets import (
     QButtonGroup,
     QCheckBox,
@@ -96,6 +96,8 @@ class PrintDialog(QDialog):
 
         self.duplex_check = QCheckBox(tr("Dubbelzijdig printen"), self)
         options_layout.addWidget(self.duplex_check)
+        self.printer_combo.currentTextChanged.connect(self._update_duplex_available)
+        self._update_duplex_available()
         layout.addWidget(options_box)
 
         # ── Kleur ──
@@ -142,6 +144,34 @@ class PrintDialog(QDialog):
         buttons.rejected.connect(self.reject)
         layout.addWidget(buttons)
 
+    def _update_duplex_available(self, name=None):
+        """Automatisch dubbelzijdig alleen als de driver het meldt (anders
+        negeerde Windows het stilzwijgend en kwam alles enkelzijdig uit de
+        printer). Kan de printer het niet, dan handmatig dubbelzijdig: eerst
+        de voorkanten, dan draait de gebruiker de stapel om. Bij virtuele
+        printers (PDF, OneNote, ...) is er geen papier, dus geen optie."""
+        name = name or self.printer_combo.currentText()
+        modes = QPrinterInfo.printerInfo(name).supportedDuplexModes() if name else []
+        automatic = any(
+            mode in modes
+            for mode in (QPrinter.DuplexMode.DuplexAuto, QPrinter.DuplexMode.DuplexLongSide)
+        )
+        if automatic:
+            self._duplex_mode = "auto"
+            self.duplex_check.setText(tr("Dubbelzijdig printen"))
+            self.duplex_check.setToolTip("")
+        elif name and not print_backend.is_virtual_printer(name):
+            self._duplex_mode = "manual"
+            self.duplex_check.setText(tr("Handmatig dubbelzijdig printen"))
+            self.duplex_check.setToolTip(tr(
+                "Eerst worden de voorkanten geprint. Daarna draait u de stapel om "
+                "en legt u hem terug in de printer voor de achterkanten."
+            ))
+        else:
+            self._duplex_mode = None
+            self.duplex_check.setChecked(False)
+        self.duplex_check.setVisible(self._duplex_mode is not None)
+
     def _apply_selected_printer(self, name=None):
         """Zet de in de keuzelijst gekozen printer op de QPrinter. Alleen bij
         een échte wijziging: setPrinterName herlaadt de driverinstellingen en
@@ -182,22 +212,12 @@ class PrintDialog(QDialog):
                 self.printer_combo.addItem(chosen)
             self.printer_combo.setCurrentText(chosen)
             self.printer_combo.blockSignals(False)
+            self._update_duplex_available(chosen)
 
     def _on_accept(self):
         pages = self._resolve_pages()
         if pages is None:
             return
-
-        if self.duplex_check.isChecked():
-            reply = QMessageBox.question(
-                self, tr("Dubbelzijdig printen"),
-                tr("Dubbelzijdig printen is geselecteerd.\n\n"
-                   "Let op: niet alle printers ondersteunen automatisch dubbelzijdig printen.\n\n"
-                   "Als uw printer dit niet ondersteunt, ziet u een dialoog om het papier "
-                   "handmatig om te draaien.\n\nWilt u doorgaan?"),
-            )
-            if reply != QMessageBox.StandardButton.Yes:
-                return
 
         self._apply_selected_printer()
         self._resolved_pages = pages
@@ -229,8 +249,58 @@ class PrintDialog(QDialog):
             pages=self._resolved_pages,
             copies=self.copies_spin.value(),
             fit_to_page=self.fit_to_page_check.isChecked(),
-            duplex=self.duplex_check.isChecked(),
+            duplex=self.duplex_check.isChecked() and self._duplex_mode == "auto",
+            manual_duplex=self.duplex_check.isChecked() and self._duplex_mode == "manual",
             color_mode="kleur" if self.radio_color.isChecked() else "zwart_wit",
             rotation=rotation,
             orientation="staand" if self.radio_portrait.isChecked() else "liggend",
         )
+
+
+class ManualDuplexDialog(QDialog):
+    """Tussen de twee rondes van handmatig dubbelzijdig: uitleg hoe de
+    stapel terug moet, plus de (per printer onthouden) keuze voor de
+    volgorde van de achterkanten."""
+
+    def __init__(self, parent, printer_name, sheet_count, reverse_backs):
+        super().__init__(parent)
+        self.setWindowTitle(tr("Handmatig dubbelzijdig printen"))
+        self.setMinimumWidth(440)
+
+        layout = QVBoxLayout(self)
+        text = QLabel(tr(
+            "<b>De voorkanten zijn geprint ({count} vel(len)).</b><br><br>"
+            "1. Wacht tot de printer klaar is en pak de hele stapel uit de printer.<br>"
+            "2. Leg de stapel terug in de papierlade, zó dat de printer op de "
+            "<b>lege kant</b> gaat printen. Verander de volgorde van de vellen niet.<br>"
+            "3. Klik op <b>Achterkanten printen</b>.",
+            count=sheet_count,
+        ), self)
+        text.setWordWrap(True)
+        layout.addWidget(text)
+
+        tip = QLabel(tr(
+            "Tip: weet u niet hoe het papier erin moet? Zet een kruisje bovenaan een leeg vel, "
+            "leg het in de lade en print één pagina: dan ziet u waar de printer het afdrukt."
+        ), self)
+        tip.setWordWrap(True)
+        tip.setEnabled(False)  # grijze, secundaire tekst
+        layout.addWidget(tip)
+
+        self.reverse_check = QCheckBox(tr("Achterkanten in omgekeerde volgorde printen"), self)
+        self.reverse_check.setToolTip(tr(
+            "Aanzetten als de achterkanten de vorige keer op de verkeerde vellen terechtkwamen. "
+            "Deze keuze wordt per printer onthouden."
+        ))
+        self.reverse_check.setChecked(reverse_backs)
+        layout.addWidget(self.reverse_check)
+
+        buttons = QDialogButtonBox(self)
+        buttons.addButton(tr("Achterkanten printen"), QDialogButtonBox.ButtonRole.AcceptRole)
+        buttons.addButton(tr("Annuleren"), QDialogButtonBox.ButtonRole.RejectRole)
+        buttons.accepted.connect(self.accept)
+        buttons.rejected.connect(self.reject)
+        layout.addWidget(buttons)
+
+    def reverse_backs(self) -> bool:
+        return self.reverse_check.isChecked()

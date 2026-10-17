@@ -9,11 +9,11 @@ fitz-document wordt anders gelijktijdig vanuit twee threads benaderd) en
 sluit aan bij de bestaande lazy-cache-aanpak in pdf_view.py.
 """
 
-from PySide6.QtCore import QSize, Qt, QTimer
-from PySide6.QtGui import QIcon, QImage, QPixmap
+from PySide6.QtCore import QSize, Qt, QTimer, Signal
+from PySide6.QtGui import QIcon, QPixmap
 from PySide6.QtWidgets import QListView, QListWidget, QListWidgetItem
 
-from .document import get_fitz
+from . import page_pixmap
 from .i18n import tr
 
 THUMBNAIL_WIDTH = 120
@@ -22,10 +22,18 @@ VISIBLE_MARGIN_ROWS = 2
 
 
 class ThumbnailPanel(QListWidget):
+    # Rechtsklik-menu en Delete-toets: MainWindow voert de bewerking uit
+    # (inclusief controle op beveiliging en niet-opgeslagen wijzigingen).
+    contextMenuRequestedForPages = Signal(list, object)  # 0-based paginanummers, globale positie
+    deletePagesRequested = Signal(list)
+
     def __init__(self, view, parent=None):
         super().__init__(parent)
         self.view = view
         self._rendered_rows = set()
+        self.setSelectionMode(QListWidget.SelectionMode.ExtendedSelection)
+        self.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+        self.customContextMenuRequested.connect(self._on_context_menu)
 
         self.setFixedWidth(THUMBNAIL_WIDTH + 40)
         self.setViewMode(QListView.ViewMode.IconMode)
@@ -114,14 +122,29 @@ class ThumbnailPanel(QListWidget):
             self.doItemsLayout()
 
     def _render_thumbnail(self, page_num) -> QPixmap:
-        fitz = get_fitz()
         page = self.view.pdf_document[page_num]
         bound = page.bound()
         zoom = THUMBNAIL_WIDTH / bound.width if bound.width else 1.0
-        pix = page.get_pixmap(matrix=fitz.Matrix(zoom, zoom))
-        fmt = QImage.Format.Format_RGBA8888 if pix.alpha else QImage.Format.Format_RGB888
-        image = QImage(pix.samples, pix.width, pix.height, pix.stride, fmt)
-        return QPixmap.fromImage(image.copy())
+        return page_pixmap.render_page(page, zoom, self.devicePixelRatioF())
+
+    def selected_pages(self):
+        pages = [item.data(Qt.ItemDataRole.UserRole) for item in self.selectedItems()]
+        return sorted(page for page in pages if page is not None)
+
+    def _on_context_menu(self, pos):
+        item = self.itemAt(pos)
+        if item is None:
+            return
+        if not item.isSelected():
+            self.clearSelection()
+            item.setSelected(True)
+        self.contextMenuRequestedForPages.emit(self.selected_pages(), self.viewport().mapToGlobal(pos))
+
+    def keyPressEvent(self, event):
+        if event.key() == Qt.Key.Key_Delete and self.selectedItems():
+            self.deletePagesRequested.emit(self.selected_pages())
+            return
+        super().keyPressEvent(event)
 
     def _on_item_clicked(self, item):
         page_num = item.data(Qt.ItemDataRole.UserRole)

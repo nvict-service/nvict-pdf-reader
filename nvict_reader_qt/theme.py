@@ -6,10 +6,12 @@ toepassing verandert van losse tkinter-widgetkleuren naar QPalette + QSS.
 """
 
 from PySide6.QtCore import QEvent, QObject, Qt
-from PySide6.QtGui import QPalette, QColor
-from PySide6.QtWidgets import QApplication, QMenu, QStyleFactory
+from PySide6.QtGui import QColor, QIcon, QPalette
+from PySide6.QtWidgets import QApplication, QMenu, QProxyStyle, QStyle, QStyleFactory
 
-from .icon_utils import get_scrollbar_arrow_path
+from .icon_utils import (
+    get_indicator_image_path, get_scrollbar_arrow_path, get_toolbar_extension_arrow_path, svg_icon_path,
+)
 from .resources import get_resource_path
 
 LIGHT = {
@@ -73,8 +75,12 @@ def build_stylesheet(colors: dict) -> str:
     # Zelfde chevron-icoontjes als Vorige/Volgende pagina (testfeedback:
     # de standaard Fusion-pijltjes op de scrollbar zagen er niet uit) - in
     # donker thema geïnverteerd via get_scrollbar_arrow_path.
-    up_arrow = get_scrollbar_arrow_path(get_resource_path("icons/prev-page.png"), dark).replace("\\", "/")
-    down_arrow = get_scrollbar_arrow_path(get_resource_path("icons/next-page.png"), dark).replace("\\", "/")
+    up_arrow = get_scrollbar_arrow_path(svg_icon_path("prev-page"), dark).replace("\\", "/")
+    check_image = get_indicator_image_path("check", colors["ACCENT_COLOR"]).replace("\\", "/")
+    check_image_disabled = get_indicator_image_path("check", colors["TEXT_SECONDARY"]).replace("\\", "/")
+    dot_image = get_indicator_image_path("dot", colors["ACCENT_COLOR"]).replace("\\", "/")
+    dot_image_disabled = get_indicator_image_path("dot", colors["TEXT_SECONDARY"]).replace("\\", "/")
+    down_arrow = get_scrollbar_arrow_path(svg_icon_path("next-page"), dark).replace("\\", "/")
     return f"""
         QMainWindow, QWidget {{
             background-color: {colors["BG_PRIMARY"]};
@@ -190,7 +196,20 @@ def build_stylesheet(colors: dict) -> str:
         }}
         QRadioButton::indicator:checked, QCheckBox::indicator:checked {{
             border: 2px solid {colors["ACCENT_COLOR"]};
-            background-color: {colors["ACCENT_COLOR"]};
+        }}
+        QCheckBox::indicator:checked {{
+            image: url("{check_image}");
+        }}
+        QRadioButton::indicator:checked {{
+            image: url("{dot_image}");
+        }}
+        QCheckBox::indicator:checked:disabled {{
+            border-color: {colors["TEXT_SECONDARY"]};
+            image: url("{check_image_disabled}");
+        }}
+        QRadioButton::indicator:checked:disabled {{
+            border-color: {colors["TEXT_SECONDARY"]};
+            image: url("{dot_image_disabled}");
         }}
         QRadioButton::indicator:hover, QCheckBox::indicator:hover {{
             border-color: {colors["ACCENT_COLOR"]};
@@ -204,6 +223,62 @@ def build_stylesheet(colors: dict) -> str:
         }}
         QLineEdit:focus, QPlainTextEdit:focus, QTextEdit:focus, QSpinBox:focus, QComboBox:focus {{
             border: 1px solid {colors["ACCENT_COLOR"]};
+        }}
+        /* Pijltjes van getalvelden en keuzelijsten: zonder eigen opmaak
+           tekende Fusion ze nauwelijks zichtbaar (testfeedback), zelfde
+           chevrons als de scrollbar. */
+        QSpinBox, QDoubleSpinBox {{
+            padding: 2px 22px 2px 4px;
+        }}
+        QSpinBox::up-button, QSpinBox::down-button,
+        QDoubleSpinBox::up-button, QDoubleSpinBox::down-button {{
+            subcontrol-origin: padding;
+            width: 20px;
+            border-left: 1px solid {colors["TEXT_SECONDARY"]};
+            background-color: {colors["BG_PRIMARY"]};
+        }}
+        QSpinBox::up-button, QDoubleSpinBox::up-button {{
+            subcontrol-position: top right;
+            border-top-right-radius: 2px;
+            border-bottom: 1px solid {colors["TEXT_SECONDARY"]};
+        }}
+        QSpinBox::down-button, QDoubleSpinBox::down-button {{
+            subcontrol-position: bottom right;
+            border-bottom-right-radius: 2px;
+        }}
+        QSpinBox::up-button:hover, QSpinBox::down-button:hover,
+        QDoubleSpinBox::up-button:hover, QDoubleSpinBox::down-button:hover {{
+            background-color: {colors["ACCENT_COLOR"]};
+        }}
+        QSpinBox::up-arrow, QDoubleSpinBox::up-arrow {{
+            image: url({up_arrow});
+            width: 10px;
+            height: 10px;
+        }}
+        QSpinBox::down-arrow, QDoubleSpinBox::down-arrow {{
+            image: url({down_arrow});
+            width: 10px;
+            height: 10px;
+        }}
+        QComboBox {{
+            padding: 2px 26px 2px 4px;
+        }}
+        QComboBox::drop-down {{
+            subcontrol-origin: padding;
+            subcontrol-position: top right;
+            width: 22px;
+            border-left: 1px solid {colors["TEXT_SECONDARY"]};
+            border-top-right-radius: 2px;
+            border-bottom-right-radius: 2px;
+            background-color: {colors["BG_PRIMARY"]};
+        }}
+        QComboBox::drop-down:hover {{
+            background-color: {colors["ACCENT_COLOR"]};
+        }}
+        QComboBox::down-arrow {{
+            image: url({down_arrow});
+            width: 10px;
+            height: 10px;
         }}
         QScrollBar:vertical {{
             background: {colors["BG_PRIMARY"]};
@@ -297,6 +372,33 @@ def _install_menu_filter(app: QApplication):
         app.installEventFilter(_menu_filter)
 
 
+class _AppStyle(QProxyStyle):
+    """Fusion, maar met een duidelijk zichtbare ">"-knop aan het eind van de
+    werkbalk als niet alle knoppen passen. Standaard is die knop maar ~12px
+    breed met een icoon dat in ons thema wegvalt, waardoor gebruikers niet
+    zagen dat er meer opties zijn. Breedte en icoon komen uit de stijl
+    (PM_ToolBarExtensionExtent / SP_ToolBarHorizontalExtensionButton), niet
+    uit de QSS - daarom een proxy-stijl."""
+
+    EXTENSION_EXTENT = 32
+
+    def __init__(self, dark):
+        super().__init__(QStyleFactory.create("Fusion"))
+        self._extension_icon = QIcon(
+            get_toolbar_extension_arrow_path(svg_icon_path("next-page"), dark)
+        )
+
+    def pixelMetric(self, metric, option=None, widget=None):
+        if metric == QStyle.PixelMetric.PM_ToolBarExtensionExtent:
+            return self.EXTENSION_EXTENT
+        return super().pixelMetric(metric, option, widget)
+
+    def standardIcon(self, icon, option=None, widget=None):
+        if icon == QStyle.StandardPixmap.SP_ToolBarHorizontalExtensionButton:
+            return self._extension_icon
+        return super().standardIcon(icon, option, widget)
+
+
 def apply_theme(app: QApplication, mode: str = "Systeemstandaard") -> dict:
     """Pas het thema toe op de hele applicatie en geef de gebruikte kleuren terug.
 
@@ -306,9 +408,9 @@ def apply_theme(app: QApplication, mode: str = "Systeemstandaard") -> dict:
     knoppen native tekent - Fusion respecteert QSS/QPalette volledig en
     geeft zo een consistent uiterlijk in zowel licht als donker thema.
     """
-    app.setStyle(QStyleFactory.create("Fusion"))
-    _install_menu_filter(app)
     colors = resolve_theme(mode)
+    app.setStyle(_AppStyle(dark=colors is DARK))
+    _install_menu_filter(app)
     app.setPalette(build_palette(colors))
     app.setStyleSheet(build_stylesheet(colors))
     return colors

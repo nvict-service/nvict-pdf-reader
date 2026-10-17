@@ -9,6 +9,19 @@ laag, net als in de tkinter-versie.
 _fitz = None
 
 
+class PasswordRequired(Exception):
+    """Het document heeft een openingswachtwoord; `wrong` is True als er
+    al een (onjuist) wachtwoord was opgegeven."""
+
+    def __init__(self, wrong=False):
+        super().__init__("password required")
+        self.wrong = wrong
+
+
+class NoPages(Exception):
+    """Het bestand is een PDF maar bevat geen enkele pagina."""
+
+
 def get_fitz():
     """Lazy import van PyMuPDF - alleen laden wanneer een PDF wordt geopend.
 

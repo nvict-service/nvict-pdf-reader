@@ -72,6 +72,20 @@ def clear_recent_files():
     get_settings().setValue("recent_files", [])
 
 
+def get_manual_duplex_reverse(printer_name: str) -> bool:
+    """Per printer onthouden of de achterkanten bij handmatig dubbelzijdig
+    in omgekeerde volgorde moeten (hangt af van hoe de printer de vellen
+    uitvoert en weer invoert)."""
+    reverse = get_settings().value("manual_duplex_reverse", {}) or {}
+    return bool(reverse.get(printer_name, False))
+
+
+def save_manual_duplex_reverse(printer_name: str, value: bool):
+    reverse = dict(get_settings().value("manual_duplex_reverse", {}) or {})
+    reverse[printer_name] = value
+    get_settings().setValue("manual_duplex_reverse", reverse)
+
+
 def get_show_thumbnails_default() -> bool:
     """Of het paginaminiaturen-paneel standaard getoond wordt bij het
     openen van een document - door de gebruiker instelbaar (Instellingen)."""
@@ -80,3 +94,50 @@ def get_show_thumbnails_default() -> bool:
 
 def save_show_thumbnails_default(value: bool):
     get_settings().setValue("show_thumbnails_default", value)
+
+
+MAX_LAST_PAGES = 200
+
+
+def get_last_page(file_path: str) -> int:
+    """Pagina (0-based) waar de gebruiker dit document de vorige keer
+    verliet, of 0. Sleutel = genormaliseerd pad."""
+    pages = get_settings().value("last_pages", {}) or {}
+    try:
+        return int(pages.get(_path_key(file_path), 0))
+    except (TypeError, ValueError):
+        return 0
+
+
+def save_last_page(file_path: str, page_num: int):
+    pages = dict(get_settings().value("last_pages", {}) or {})
+    key = _path_key(file_path)
+    pages.pop(key, None)
+    if page_num > 0:
+        pages[key] = page_num  # dict behoudt invoegvolgorde: nieuwste achteraan
+    while len(pages) > MAX_LAST_PAGES:
+        pages.pop(next(iter(pages)))
+    get_settings().setValue("last_pages", pages)
+
+
+def _path_key(file_path: str) -> str:
+    import os
+    return os.path.normcase(os.path.abspath(file_path))
+
+
+def get_show_toc() -> bool:
+    """Inhoudsopgave-paneel tonen bij documenten die er een hebben."""
+    return get_settings().value("show_toc", True, type=bool)
+
+
+def save_show_toc(value: bool):
+    get_settings().setValue("show_toc", value)
+
+
+def get_reading_mode() -> bool:
+    """Leesmodus: pagina's met donkere achtergrond en lichte tekst."""
+    return get_settings().value("reading_mode", False, type=bool)
+
+
+def save_reading_mode(value: bool):
+    get_settings().setValue("reading_mode", value)

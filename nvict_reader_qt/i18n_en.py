@@ -138,7 +138,7 @@ EN = {
     "Zoeken in documenten": "Search in documents",
     "Volledig scherm en boekweergave": "Full screen and book view",
     "Broncode op GitHub": "Source code on GitHub",
-    "Iconen door Freepik - Flaticon": "Icons by Freepik - Flaticon",
+    "Iconen gebaseerd op ontwerpen van Flaticon": "Icons based on designs from Flaticon",
     "Sluiten": "Close",
 
     # ── Exporteren / roteren / samenvoegen ──
@@ -322,4 +322,191 @@ EN = {
         "Please try again later or download the update manually from the website.",
     "Het gedownloade bestand is niet gevonden.": "The downloaded file was not found.",
     "Kan de installer niet starten:": "Cannot start the installer:",
+    "&Fout melden...": "&Report a problem...",
+    "Fout melden": "Report a problem",
+    "Installatieprogramma": "Installer",
+    "Scherm: {size}, schaal {scale}": "Screen: {size}, scale {scale}",
+    "Taal: {language}": "Language: {language}",
+    "Beschrijf wat er misging en wat u op dat moment deed. Met 'E-mail opstellen' "
+    "opent uw mailprogramma een bericht aan {address}; u verstuurt het zelf.":
+        "Describe what went wrong and what you were doing at the time. 'Compose e-mail' "
+        "opens your mail program with a message to {address}; you send it yourself.",
+    "Bijvoorbeeld: bij het openen van een bepaalde PDF blijft het scherm leeg...":
+        "For example: when opening a certain PDF the screen stays empty...",
+    "Systeeminformatie meesturen (helpt bij het oplossen)": "Include system information (helps to solve it)",
+    "E-mail opstellen": "Compose e-mail",
+    "Foutmelding NVict Reader {version}": "Problem report NVict Reader {version}",
+    "Dit document is beveiligd met een wachtwoord.\n\n{name}": "This document is password protected.\n\n{name}",
+    "Onjuist wachtwoord, probeer het opnieuw.": "Incorrect password, please try again.",
+    "Wachtwoord vereist": "Password required",
+    "Het bestand bestaat niet (meer) op deze locatie.": "The file no longer exists at this location.",
+    "Geen toegang tot dit bestand. Mogelijk is het in gebruik door een ander programma.":
+        "No access to this file. It may be in use by another program.",
+    "Het bestand is leeg (0 bytes).": "The file is empty (0 bytes).",
+    "Het document bevat geen pagina's.": "The document has no pages.",
+    "Dit bestand is geen PDF, of is zo beschadigd dat het niet te openen is.":
+        "This file is not a PDF, or is too damaged to open.",
+    "Onbekende fout: {error}": "Unknown error: {error}",
+    "Er is geen mailprogramma gevonden. De melding staat op het klembord; "
+    "plak hem in een e-mail aan {address}.":
+        "No mail program was found. The report has been copied to the clipboard; "
+        "paste it into an e-mail to {address}.",
+    "&Beveiligen met wachtwoord...": "&Protect with password...",
+    "Beveiligen met wachtwoord": "Protect with password",
+    "Beveiligde PDF opslaan als": "Save protected PDF as",
+    "_beveiligd": "_protected",
+    "Het geopende bestand kan niet worden overschreven. Kies een andere bestandsnaam.":
+        "The open file cannot be overwritten. Please choose another file name.",
+    "Kan de PDF niet beveiligen:": "Cannot protect the PDF:",
+    "De beveiligde PDF is opgeslagen:\n{path}\n\n"
+    "Vergeet niet het wachtwoord veilig te bewaren - het is niet terug te halen.":
+        "The protected PDF has been saved:\n{path}\n\n"
+        "Remember to keep the password safe - it cannot be recovered.",
+    "De beveiligde versie wordt als nieuw bestand opgeslagen; het origineel blijft ongewijzigd.":
+        "The protected version is saved as a new file; the original stays unchanged.",
+    "Wachtwoord vereist om de PDF te openen": "Require a password to open the PDF",
+    "Wijzigen beperken (eigenaarswachtwoord)": "Restrict changes (owner password)",
+    "Zonder eigenaarswachtwoord toegestaan:": "Allowed without the owner password:",
+    "Tekst en afbeeldingen kopiëren": "Copying text and images",
+    "Opmerkingen toevoegen en formulieren invullen": "Adding comments and filling in forms",
+    "Wijzigen van de inhoud is altijd uitgeschakeld. Beperkingen worden "
+    "gerespecteerd door gangbare PDF-programma's, maar zijn geen absolute bescherming.":
+        "Changing the content is always disabled. Restrictions are respected by "
+        "common PDF programs, but are not absolute protection.",
+    "Wachtwoorden tonen": "Show passwords",
+    "Wachtwoord:": "Password:",
+    "Herhalen:": "Repeat:",
+    "<b>⚠ Let op: een vergeten wachtwoord is NIET terug te halen.</b><br>"
+    "De PDF wordt versleuteld met AES-256. Bent u het wachtwoord kwijt, dan kan "
+    "niemand – ook NVict Service niet – het bestand nog openen of ontgrendelen. "
+    "Bewaar het wachtwoord op een veilige plek, bijvoorbeeld in een wachtwoordmanager.":
+        "<b>⚠ Warning: a forgotten password can NOT be recovered.</b><br>"
+        "The PDF is encrypted with AES-256. If you lose the password, nobody – "
+        "not even NVict Service – can open or unlock the file. "
+        "Keep the password in a safe place, for example a password manager.",
+    "Ik begrijp dat een vergeten wachtwoord niet te herstellen is":
+        "I understand that a forgotten password cannot be recovered",
+    "Beveiligen en opslaan...": "Protect and save...",
+    "Het {label} moet minstens {n} tekens lang zijn.": "The {label} must be at least {n} characters long.",
+    "De twee invoervelden van het {label} zijn niet gelijk.": "The two {label} fields do not match.",
+    "openingswachtwoord": "open password",
+    "eigenaarswachtwoord": "owner password",
+    "Het openingswachtwoord en het eigenaarswachtwoord moeten verschillen; "
+    "anders heeft iedereen die de PDF kan openen ook alle rechten.":
+        "The open password and the owner password must be different; "
+        "otherwise anyone who can open the PDF also has all rights.",
+    "Handmatig dubbelzijdig printen": "Manual double-sided printing",
+    "Eerst worden de voorkanten geprint. Daarna draait u de stapel om "
+    "en legt u hem terug in de printer voor de achterkanten.":
+        "The fronts are printed first. Then you turn the stack over "
+        "and put it back into the printer for the backs.",
+    "<b>De voorkanten zijn geprint ({count} vel(len)).</b><br><br>"
+    "1. Wacht tot de printer klaar is en pak de hele stapel uit de printer.<br>"
+    "2. Leg de stapel terug in de papierlade, zó dat de printer op de "
+    "<b>lege kant</b> gaat printen. Verander de volgorde van de vellen niet.<br>"
+    "3. Klik op <b>Achterkanten printen</b>.":
+        "<b>The fronts have been printed ({count} sheet(s)).</b><br><br>"
+        "1. Wait until the printer has finished and take the whole stack out.<br>"
+        "2. Put the stack back into the paper tray so that the printer will print on the "
+        "<b>blank side</b>. Do not change the order of the sheets.<br>"
+        "3. Click <b>Print backs</b>.",
+    "Tip: weet u niet hoe het papier erin moet? Zet een kruisje bovenaan een leeg vel, "
+    "leg het in de lade en print één pagina: dan ziet u waar de printer het afdrukt.":
+        "Tip: not sure which way the paper goes in? Put a cross at the top of a blank sheet, "
+        "load it in the tray and print one page: you will see where the printer prints.",
+    "Achterkanten in omgekeerde volgorde printen": "Print backs in reverse order",
+    "Aanzetten als de achterkanten de vorige keer op de verkeerde vellen terechtkwamen. "
+    "Deze keuze wordt per printer onthouden.":
+        "Turn this on if the backs ended up on the wrong sheets last time. "
+        "This choice is remembered per printer.",
+    "Achterkanten printen": "Print backs",
+    # ── Inhoudsopgave, zoekbalk, leesmodus, verder lezen ──
+    "&Inhoudsopgave": "&Table of contents",
+    "Inhoudsopgave tonen als de PDF er een heeft": "Show the table of contents if the PDF has one",
+    "Inhoud": "Contents",
+    "Zoeken:": "Search:",
+    "Zoek in document...": "Search in document...",
+    "Vorige treffer (Shift+Enter)": "Previous match (Shift+Enter)",
+    "Volgende treffer (Enter)": "Next match (Enter)",
+    "Zoekbalk sluiten (Esc)": "Close search bar (Esc)",
+    "Niet gevonden": "Not found",
+    "{current} van {total}": "{current} of {total}",
+    "&Leesmodus (donkere pagina's)": "&Reading mode (dark pages)",
+    "Pagina's met een donkere achtergrond en lichte tekst, prettig 's avonds":
+        "Pages with a dark background and light text, easier on the eyes at night",
+    "Verder gelezen vanaf pagina {page}": "Continued reading from page {page}",
+    # ── Beveiliging en beperkingen ──
+    "De maker van deze PDF heeft {action} beveiligd met een eigenaarswachtwoord.\n\n"
+    "Voer het eigenaarswachtwoord in om door te gaan:":
+        "The creator of this PDF has restricted {action} with an owner password.\n\n"
+        "Enter the owner password to continue:",
+    "De maker van {name} heeft samenvoegen beveiligd met een eigenaarswachtwoord.\n\n"
+    "Voer het eigenaarswachtwoord in om door te gaan:":
+        "The creator of {name} has restricted merging with an owner password.\n\n"
+        "Enter the owner password to continue:",
+    "Eigenaarswachtwoord vereist": "Owner password required",
+    "Onjuist eigenaarswachtwoord, probeer het opnieuw.": "Incorrect owner password, please try again.",
+    "Bewerken ontgrendeld": "Editing unlocked",
+    "wijzigingen": "changes",
+    "wijzigen": "changing",
+    "opmerkingen toevoegen": "adding comments",
+    "markeren": "highlighting",
+    "ondertekenen": "signing",
+    "formulieren invullen": "filling in forms",
+    "pagina's exporteren": "exporting pages",
+    "pagina's draaien": "rotating pages",
+    "pagina's verwijderen, verplaatsen en invoegen": "deleting, moving and inserting pages",
+    "samenvoegen": "merging",
+    "de beveiliging": "the security",
+    "Beveiliging &verwijderen...": "&Remove protection...",
+    "Beveiliging verwijderen": "Remove protection",
+    "Onbeveiligde kopie opslaan als": "Save unprotected copy as",
+    "_onbeveiligd": "_unprotected",
+    "Een kopie zonder wachtwoord en beperkingen is opgeslagen:\n{path}":
+        "A copy without password and restrictions has been saved:\n{path}",
+    "Kan de beveiliging niet verwijderen:": "Cannot remove the protection:",
+    # ── Paginabewerkingen ──
+    "Pagina's &verwijderen...": "&Delete pages...",
+    "Pagina &verplaatsen...": "&Move page...",
+    "PDF &invoegen...": "&Insert PDF...",
+    "Pagina's verwijderen": "Delete pages",
+    "Pagina verwijderen": "Delete page",
+    "{count} pagina's verwijderen": "Delete {count} pages",
+    "Pagina {page} verwijderen?": "Delete page {page}?",
+    "{count} pagina's verwijderen?": "Delete {count} pages?",
+    "Ongedaan maken kan met Ctrl+Z; pas bij 'Opslaan als' wordt het vastgelegd.":
+        "You can undo this with Ctrl+Z; it is only made permanent with 'Save as'.",
+    "Welke pagina's wilt u verwijderen? (bv. 3 of 2-5,8)": "Which pages do you want to delete? (e.g. 3 or 2-5,8)",
+    "Ongeldige paginaselectie.": "Invalid page selection.",
+    "Een PDF moet minstens één pagina houden.": "A PDF must keep at least one page.",
+    "Pagina verplaatsen": "Move page",
+    "Pagina {page} verplaatsen naar positie:": "Move page {page} to position:",
+    "Eén plek naar voren": "One place forward",
+    "Eén plek naar achteren": "One place back",
+    "Verplaatsen naar...": "Move to...",
+    "PDF invoegen": "Insert PDF",
+    "PDF invoegen vóór deze pagina...": "Insert PDF before this page...",
+    "PDF invoegen na deze pagina...": "Insert PDF after this page...",
+    "Invoegen na pagina (0 = helemaal vooraan):": "Insert after page (0 = at the very beginning):",
+    "{count} pagina('s) ingevoegd": "{count} page(s) inserted",
+    "Eerst opslaan": "Save first",
+    "Er zijn nog niet-opgeslagen opmerkingen, markeringen, rotaties of formulierwaarden.\n\n"
+    "Sla die eerst op met 'Opslaan als' voordat u pagina's verwijdert, verplaatst of invoegt.":
+        "There are still unsaved comments, highlights, rotations or form values.\n\n"
+        "Save them first with 'Save as' before deleting, moving or inserting pages.",
+    # ── Verkleinen ──
+    "PDF &verkleinen...": "&Reduce PDF size...",
+    "PDF verkleinen": "Reduce PDF size",
+    "Hoe sterk verkleinen? Afbeeldingen worden opnieuw gecomprimeerd;\ntekst blijft altijd scherp.":
+        "How much to reduce? Images are recompressed;\ntext always stays sharp.",
+    "Licht - beste kwaliteit": "Light - best quality",
+    "Gemiddeld - aanbevolen": "Medium - recommended",
+    "Sterk - kleinste bestand": "Strong - smallest file",
+    "Verkleinde PDF opslaan als": "Save reduced PDF as",
+    "_verkleind": "_reduced",
+    "Opgeslagen als:\n{path}\n\nVan {old} naar {new} ({saved}% kleiner).":
+        "Saved as:\n{path}\n\nFrom {old} to {new} ({saved}% smaller).",
+    "Deze PDF is al zo compact mogelijk; er is geen kleiner bestand gemaakt.":
+        "This PDF is already as compact as possible; no smaller file was created.",
+    "Kan de PDF niet verkleinen:": "Cannot reduce the PDF:",
 }

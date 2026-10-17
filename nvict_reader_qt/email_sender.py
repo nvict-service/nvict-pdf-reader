@@ -105,10 +105,7 @@ def send_as_attachment(parent, tab):
 
     if view.has_unsaved_changes():
         try:
-            tmp_path = save_pdf.build_modified_pdf(
-                tab.file_path, view.text_annotations, view.highlight_annotations,
-                view.pending_rotations, view.form_field_values, view.signature_annotations,
-            )
+            tmp_path = view.build_modified_copy()
         except Exception as exc:
             QMessageBox.critical(
                 parent, tr("Wijzigingen niet verwerkt"),

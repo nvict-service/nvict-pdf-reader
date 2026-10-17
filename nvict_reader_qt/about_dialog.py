@@ -22,7 +22,7 @@ from .i18n import tr
 from .resources import get_resource_path
 from .update_checker import APP_VERSION
 
-FLATICON_URL = "https://www.flaticon.com/free-icons/page"
+FLATICON_URL = "https://www.flaticon.com/"
 GITHUB_URL = "https://github.com/nvict-service/nvict-pdf-reader"
 DISCLAIMER_TEXT = (
     "NVict Reader is gratis software, aangeboden zonder enige garantie. "
@@ -120,18 +120,18 @@ class AboutDialog(QDialog):
             features_layout.addWidget(label)
         content.addWidget(features_box)
 
-        link_label = QLabel(f'<a href="{website_url}">www.nvict.nl</a>', self)
+        link_label = QLabel(f'<a href="{website_url}" style="color: {colors["ACCENT_COLOR"]};">www.nvict.nl</a>', self)
         link_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         link_label.setStyleSheet("margin-top: 15px;")
         link_label.setOpenExternalLinks(True)
         content.addWidget(link_label)
 
-        github_label = QLabel(f'<a href="{GITHUB_URL}">{tr("Broncode op GitHub")}</a>', self)
+        github_label = QLabel(f'<a href="{GITHUB_URL}" style="color: {colors["ACCENT_COLOR"]};">{tr("Broncode op GitHub")}</a>', self)
         github_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         github_label.setOpenExternalLinks(True)
         content.addWidget(github_label)
 
-        credit_label = QLabel(f'<a href="{FLATICON_URL}">{tr("Iconen door Freepik - Flaticon")}</a>', self)
+        credit_label = QLabel(f'<a href="{FLATICON_URL}" style="color: {colors["ACCENT_COLOR"]};">{tr("Iconen gebaseerd op ontwerpen van Flaticon")}</a>', self)
         credit_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         credit_label.setStyleSheet(f"color: {colors['TEXT_SECONDARY']}; font-size: 11px;")
         credit_label.setOpenExternalLinks(True)
