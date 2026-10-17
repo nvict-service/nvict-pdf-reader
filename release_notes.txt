@@ -1,3 +1,52 @@
+Versie 3.2 - Scherper beeld, nieuw startscherm en veel nieuwe functies
+
+Scherpe weergave bij een hogere schermschaal
+  Bij een Windows-schaal van 125% of meer zagen pagina's er wazig uit. De
+  pagina's, miniaturen en volledig scherm worden nu op de echte
+  schermresolutie getekend.
+
+Nieuw startscherm
+  De laatst geopende bestanden staan er als miniatuur van de eerste
+  pagina. Per bestand te verwijderen met het kruisje, of allemaal met
+  "Lijst wissen". Ga met de muis over een miniatuur om te zien waar het
+  bestand staat.
+
+Lezen en zoeken
+  Nieuw: inhoudsopgave-paneel voor PDF's met bladwijzers.
+  Nieuw: zoekbalk (Ctrl+F) met alle treffers en vorige/volgende.
+  Nieuw: leesmodus met donkere pagina's (Beeld-menu); foto's houden hun
+  echte kleuren.
+  Nieuw: verder lezen waar u de vorige keer gebleven was.
+  Zoomen met Ctrl + scrollwiel, en bestanden openen door ze op het venster
+  te slepen.
+
+Pagina's beheren
+  Pagina's verwijderen, verplaatsen en een andere PDF invoegen, via het
+  Bewerken-menu of met de rechtermuisknop op de paginaminiaturen. Ongedaan
+  maken kan met Ctrl+Z.
+  Nieuw: PDF verkleinen (Bestand-menu), handig voor e-mailbijlagen.
+
+Beveiliging
+  PDF's met een wachtwoord openen weer: er wordt om het wachtwoord
+  gevraagd.
+  Nieuw: een PDF beveiligen met een wachtwoord voor openen en/of een
+  eigenaarswachtwoord dat afdrukken, kopiëren en wijzigen beperkt.
+  Let op: een vergeten wachtwoord is niet terug te halen.
+  Nieuw: beveiliging verwijderen (met het eigenaarswachtwoord).
+  Beperkingen die de maker van een PDF heeft ingesteld worden nu
+  gerespecteerd; met het eigenaarswachtwoord zijn ze op te heffen.
+
+Printen
+  "Dubbelzijdig printen" verschijnt alleen bij printers die het
+  ondersteunen. Bij andere printers kan handmatig dubbelzijdig worden
+  geprint: eerst de voorkanten, dan draait u de stapel om.
+
+Overig
+  Nieuw: Help > Fout melden, om een probleem eenvoudig door te geven.
+  Nieuwe, scherpe iconen; duidelijker vinkjes en knoppen; "Instellingen"
+  opent direct; een ">" in de werkbalk als niet alle knoppen passen.
+  Begrijpelijke foutmeldingen bij bestanden die niet te openen zijn.
+
 Versie 3.1 - Printen verbeterd
 
 Scherpere afdrukken

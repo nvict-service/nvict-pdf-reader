@@ -13,10 +13,10 @@
 ; herkenning ongewijzigd blijven werken.
 ;
 ; Wordt aangeroepen door _nvict_build/release.py met /DVERSION=... en /Ssigntool=...
-; Handmatig compileren kan ook: ISCC NVict_Reader_Qt.iss /DVERSION=3.1
+; Handmatig compileren kan ook: ISCC NVict_Reader_Qt.iss /DVERSION=3.2
 
 #ifndef VERSION
-  #define VERSION "3.1"
+  #define VERSION "3.2"
 #endif
 
 #define MyAppName "NVict Reader"
